@@ -37,12 +37,9 @@ class HMLP_IBP(HMLP, HyperNetInterface):
                         activation_fn=nn.ReLU(),       # For now only ReLU is supported
                         num_cond_embs=num_cond_embs) 
         
-        self.trained_radii = torch.zeros(cond_in_size)    # Initialize an empty tensor for intervals
-                                                          # around embeddings in the weight space
-        self.tasks_embeddings = torch.zeros(cond_in_size) # This variable stores the learned embedding
         self.perturbated_eps = kwargs["perturbated_eps"]
     
-    def get_interval_around_emb(self, task_id):
+    def get_interval_around_emb(self, task_id, perturbated_eps):
         """
         Return the intervals of a `task_id`-th embedding
 
@@ -61,7 +58,7 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         emb = self.get_cond_in_emb(cond_id=task_id)
 
         # Get the intervals
-        radii = self.perturbated_eps * F.softmax(emb, dim=1)
+        radii = (perturbated_eps * F.softmax(emb)).detach()
 
         return radii
 
@@ -143,9 +140,6 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         # embedding
         eps = perturbated_eps*F.softmax(h, dim=1)
 
-        # Store the trained radii
-        self.trained_radii = deepcopy(eps.detach())
-
         for i in range(len(fc_weights)):
             last_layer = i == (len(fc_weights) - 1)
 
@@ -174,9 +168,6 @@ class HMLP_IBP(HMLP, HyperNetInterface):
 
         z_l, z_u = h-eps, h+eps
         
-        # Store the embedding
-        self.tasks_embeddings = deepcopy(h.detach())
-
         ### Split output into target shapes ###
         ret = self._flat_to_ret_format(h, ret_format)
         if return_extended_output:
