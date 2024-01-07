@@ -169,7 +169,7 @@ def set_hyperparameters(dataset,
             elif part == 1:
                 hyperparams['best_model_selection_method'] = 'last_model'
             hyperparams['saving_folder'] = (
-                '/shared/results/pkrukowski/HyperIntervalResults/non_forced_intervals/grid_search_relu/'
+                '/shared/results/pkrukowski/HyperIntervalResults/forced_intervals/grid_search_relu/'
                 f'permuted_mnist_final_grid_experiments/{hyperparams["best_model_selection_method"]}/'
             )
 
@@ -259,7 +259,7 @@ def set_hyperparameters(dataset,
             else:
                 raise ValueError(f'Wrong argument: {part}!')
             hyperparams['saving_folder'] = (
-                '/shared/results/pkrukowski/HyperIntervalResults/non_forced_intervals/grid_search_relu/'
+                '/shared/results/pkrukowski/HyperIntervalResults/forced_intervals/grid_search_relu/'
                 f'CIFAR-100_single_seed/'
                 f'part_{part}_ResNet_stronger_reg/'
             )
@@ -346,7 +346,7 @@ def set_hyperparameters(dataset,
                 raise ValueError('Not implemented subset of hyperparameters!')
 
             hyperparams['saving_folder'] = (
-                '/shared/results/pkrukowski/HyperIntervalResults/non_forced_intervals/grid_search_relu/'
+                '/shared/results/pkrukowski/HyperIntervalResults/forced_intervals/grid_search_relu/'
                 f'split_mnist/augmented/ICLR_models/part_{part}/'
             )
 
