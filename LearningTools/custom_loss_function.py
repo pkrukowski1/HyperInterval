@@ -7,10 +7,9 @@ import torch.nn as nn
 
 class IBP_Loss(nn.Module):
 
-    def __init__(self, calculation_area_mode=False):
+    def __init__(self):
         super().__init__()
         self.bce_loss_func         = nn.CrossEntropyLoss()
-        self.calculation_area_mode = calculation_area_mode
         self.worst_case_error      = 0.0
     
 
