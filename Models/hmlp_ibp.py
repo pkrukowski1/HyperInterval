@@ -41,6 +41,30 @@ class HMLP_IBP(HMLP, HyperNetInterface):
                                                           # around embeddings in the weight space
         self.tasks_embeddings = torch.zeros(cond_in_size) # This variable stores the learned embedding
         self.perturbated_eps = kwargs["perturbated_eps"]
+    
+    def get_interval_around_emb(self, task_id):
+        """
+        Return the intervals of a `task_id`-th embedding
+
+        Args:
+        -----
+
+            task_id (int): a task id
+        
+        Returns:
+        --------
+
+            radii (torch.Tensor): an interval around the `task_id`-th task
+        """
+
+        # Get the embedding
+        emb = self.get_cond_in_emb(cond_id=task_id)
+
+        # Get the intervals
+        radii = self.perturbated_eps * F.softmax(emb, dim=1)
+
+        return radii
+
 
     def forward(self, uncond_input=None, cond_input=None, cond_id=None,
                 weights=None, distilled_params=None, condition=None,
