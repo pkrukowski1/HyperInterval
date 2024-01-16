@@ -944,12 +944,50 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
             z_u_inter_emb = torch.minimum(z_u_curr_emb, z_u_prev_emb)
             z_l_inter_emb = torch.maximum(z_l_curr_emb, z_l_prev_emb)
 
+            # Calculate the middle of the intersection
+            z_inter_emb = (z_u_inter_emb + z_l_inter_emb)/2
+
             # Chech if the intersection is not empty
             if torch.any(z_l_inter_emb > z_u_inter_emb):
-                print("An intersection is empty and we propagate arithmetic mean between middles of two consecutive tasks")
-                z_inter_emb = (previous_embedding + current_embedding)/2.0
-            else:
-                z_inter_emb = (z_u_inter_emb + z_l_inter_emb)/2
+                print(f"An intersection is empty and the strategy {parameters['strategy']} is applied!")
+
+                if parameters['strategy'] == 0:
+                    print("The first startegy is invoked...")
+
+                    z_inter_emb = torch.where(
+                        z_l_inter_emb > z_u_inter_emb,
+                        (previous_embedding + current_embedding)/2.0,
+                        z_inter_emb
+                    )
+
+                elif parameters['strategy'] == 1:
+                    print("The second strategy is invoked...")
+
+                    z_inter_emb = torch.where(
+                        z_l_inter_emb > z_u_inter_emb, 
+                        current_embedding, 
+                        z_inter_emb
+                    )
+                    
+                elif parameters['strategy'] == 2:
+                    print("The third strategy is invoked...")
+
+                    # Find the length of the previous and current intervals
+                    len_prev_emb = torch.abs(z_u_prev_emb - z_l_prev_emb)
+                    len_curr_emb = torch.abs(z_u_curr_emb - z_l_curr_emb)
+
+                    # Find dimensions of the previous and current embeddings with the shortest intervals around
+                    shortest_embedding = torch.where(
+                        len_prev_emb < len_curr_emb,
+                        previous_embedding,
+                        current_embedding
+                    )
+                    z_inter_emb = torch.where(z_l_inter_emb > z_u_inter_emb,
+                                              shortest_embedding,
+                                              z_inter_emb
+                                              )
+                else:
+                    raise NotImplementedError                
 
             # Evaluate previous tasks for intersection
             results_from_interval_intersection = evaluate_previous_tasks_for_intersection(
@@ -1137,7 +1175,8 @@ if __name__ == "__main__":
                 hyperparameters["seed"],
                 hyperparameters["gammas"],
                 hyperparameters["rhos"],
-                hyperparameters["perturbated_epsilon"])
+                hyperparameters["perturbated_epsilon"],
+                hyperparameters["strategy"])
     ):
         embedding_size = elements[0]
         learning_rate = elements[1]
@@ -1147,6 +1186,7 @@ if __name__ == "__main__":
         gamma_par = elements[6]
         rho = elements[7]
         perturbated_eps = elements[8]
+        strategy = elements[9]
 
         # Of course, seed is not optimized but it is easier to prepare experiments
         # for multiple seeds in such a way
@@ -1188,6 +1228,7 @@ if __name__ == "__main__":
             'summary_results_filename': summary_results_filename,
             'perturbated_epsilon': perturbated_eps,
             'kappa': hyperparameters["kappa"],
+            'strategy': strategy
         }
 
         os.makedirs(f"{parameters['saving_folder']}", exist_ok=True)
