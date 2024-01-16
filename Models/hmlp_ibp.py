@@ -38,7 +38,16 @@ class HMLP_IBP(HMLP, HyperNetInterface):
                         num_cond_embs=num_cond_embs) 
         
         self.perturbated_eps = kwargs["perturbated_eps"]
+        
+       
+    @property
+    def internal_params(self):
+        return self._internal_params
     
+    @internal_params.setter
+    def internal_params(self, cond_id, value):
+        self._internal_params[cond_id] = value
+
     def get_interval_around_emb(self, task_id, perturbated_eps):
         """
         Return the intervals of a `task_id`-th embedding
@@ -58,7 +67,7 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         emb = self.get_cond_in_emb(cond_id=task_id)
 
         # Get the intervals
-        radii = (perturbated_eps * F.softmax(emb)).detach()
+        radii = perturbated_eps * F.softmax(emb)
 
         return radii
 
@@ -163,7 +172,7 @@ class HMLP_IBP(HMLP, HyperNetInterface):
                 # Non-linearity
                 if self._act_fn is not None:
                     z_l, z_u = h - eps, h + eps
-                    z_l, z_u = self._act_fn(z_l), self._act_fn(z_u)
+                    z_l, z_u = F.relu(z_l), F.relu(z_u)
                     h, eps   = (z_u + z_l) / 2, (z_u - z_l) / 2
 
         z_l, z_u = h-eps, h+eps

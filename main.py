@@ -198,78 +198,6 @@ def calculate_accuracy(data,
                     gt_classes.numel()) * 100.
     return accuracy
 
-def evaluate_previous_tasks_per_embedding(hypernetwork,
-                            target_network,
-                            cond_id_to_use,
-                            dataframe_results,
-                            list_of_permutations,
-                            parameters):
-    """
-    Evaluate the target network according to the weights generated
-    by the hypernetwork for all previously trained tasks. For instance,
-    if current_task_no is equal to 5, then tasks 0, 1, 2, 3, 4 and 5
-    will be evaluated.
-    
-    Arguments:
-    ----------
-      *hypernetwork* (hypnettorch.hnets module, e.g. mlp_hnet.MLP)
-                     a hypernetwork that generates weights for the target
-                     network
-      *target_network* (hypnettorch.mnets module, e.g. mlp.MLP)
-                       a target network that finally will perform
-                       classification
-      *cond_id_to_use* (int) an embedding's id to solve every task
-      *dataframe_results* (Pandas Dataframe) stores results; contains
-                          following columns: 'after_learning_of_task',
-                          'tested_task' and 'accuracy'
-      *list_of_permutations*: (hypnettorch.data module), e.g. in the case
-                              of PermutedMNIST it will be
-                              special.permuted_mnist.PermutedMNISTList
-      *parameters* a dictionary containing the following keys:
-        -device- string: 'cuda' or 'cpu', defines in which device calculations
-                 will be performed
-        -use_batch_norm_memory- Boolean: defines whether stored weights
-                                of the batch normalization layer should be used
-                                If True then *number_of_task* has to be given
-        -number_of_task- int/None: gives an information which task is currently
-                         solved
-
-    Returns:
-    --------
-      *dataframe_results* (Pandas Dataframe) a dataframe updated with
-                          the calculated results
-    """
-    # Calculate accuracy for each previously trained task
-    # as well as for the last trained task
-    hypernetwork.eval()
-    target_network.eval()
-    for task in range(parameters['number_of_task']+1):
-        # Target entropy calculation should be included here: hypernetwork has to be inferred
-        # for each task (together with the target network) and the task_id with the lowest entropy
-        # has to be chosen
-        # Arguments of the function: list of permutations, hypernetwork, target network
-        # output: task id
-        currently_tested_task = list_of_permutations[task]
-        # Generate weights of the target network
-        target_weights = hypernetwork.forward(cond_id=cond_id_to_use, perturbated_eps=parameters['perturbated_epsilon'])
-        
-        accuracy = calculate_accuracy(
-            currently_tested_task,
-            target_network,
-            target_weights,
-            parameters=parameters,
-            evaluation_dataset='test'
-        )
-        result = {
-            'after_learning_of_task': parameters['number_of_task'],
-            'tested_task': task,
-            'accuracy': accuracy.cpu().item()
-        }
-        print(f'Accuracy for task {task}: {accuracy}%.')
-        dataframe_results = dataframe_results.append(
-            result, ignore_index=True)
-    return dataframe_results
-
 
 def infer_task_id(list_of_permutations, hypernetwork, target_network, current_task):
     """
@@ -691,8 +619,7 @@ def train_single_task(hypernetwork,
 
         # Get weights, lower weights, upper weights and predicted radii
         # returned by the hypernetwork
-        emb = hypernetwork.conditional_params[current_no_of_task]
-        target_weights, lower_weights, upper_weights, _ = hypernetwork.forward(cond_input=emb.view(1,-1), 
+        target_weights, lower_weights, upper_weights, _ = hypernetwork.forward(cond_id=current_no_of_task, 
                                                                                 return_extended_output=True,
                                                                                 perturbated_eps=eps)
 
@@ -727,16 +654,17 @@ def train_single_task(hypernetwork,
         # Calculate loss which comes from the forcing embedding to stay at some distance
         # each by each
         if current_no_of_task == 1:
-            lower_logit_first_task_emb = hypernetwork.get_cond_in_emb(0) - hypernetwork.get_interval_around_emb(0, perturbated_eps=eps)
+            lower_logit_first_task_emb = middle_first_task_emb - \
+                                            hypernetwork.get_interval_around_emb(0, perturbated_eps=parameters["perturbated_epsilon"])
             exp_middle_task_emb        = (middle_first_task_emb + lower_logit_first_task_emb)/2.0
-            curr_middle_task_emb       = hypernetwork.get_cond_in_emb(current_no_of_task)
+            curr_middle_task_emb       = hypernetwork.internal_params[current_no_of_task]
 
             # Force current embedding to stay within the region of the first embedding
             loss_embeddings = (exp_middle_task_emb - curr_middle_task_emb).pow(2).mean()
         elif current_no_of_task > 1:
             middle_prev_task_emb = hypernetwork.get_cond_in_emb(current_no_of_task-1)
             exp_middle_task_emb  = (middle_first_task_emb + middle_prev_task_emb)/2.0
-            curr_middle_task_emb = hypernetwork.get_cond_in_emb(current_no_of_task)
+            curr_middle_task_emb = hypernetwork.internal_params[current_no_of_task]
 
             # Force current embedding to stay within the region of the first embedding
             loss_embeddings = (exp_middle_task_emb - curr_middle_task_emb).pow(2).mean()
@@ -753,7 +681,7 @@ def train_single_task(hypernetwork,
                 inds_of_out_heads=None,
                 batch_size=-1
             )
-        
+
         # Calculate total loss
         loss = loss_current_task + \
             parameters['beta'] * loss_regularization / max(1, current_no_of_task) - \
@@ -941,6 +869,9 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
 
     for no_of_task in range(no_tasks):
 
+        if no_of_task > 0:
+            hypernetwork.internal_params[no_of_task] = hypernetwork.internal_params[no_of_task-1].clone()
+
         hypernetwork, target_network = train_single_task(
             hypernetwork,
             target_network,
@@ -994,12 +925,12 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
         if no_of_task > 0:
 
             # Get the previous and current task's embedding
-            previous_embedding = deepcopy(hypernetwork.get_cond_in_emb(no_of_task-1))
-            current_embedding  = deepcopy(hypernetwork.get_cond_in_emb(no_of_task))
+            previous_embedding = hypernetwork.get_cond_in_emb(no_of_task-1)
+            current_embedding  = hypernetwork.get_cond_in_emb(no_of_task)
 
             # Get the previous and current embedding's interval
-            previous_interval = deepcopy(hypernetwork.get_interval_around_emb(no_of_task-1, perturbated_eps=parameters['perturbated_epsilon']))
-            current_interval  = deepcopy(hypernetwork.get_interval_around_emb(no_of_task, perturbated_eps=parameters['perturbated_epsilon']))
+            previous_interval = hypernetwork.get_interval_around_emb(no_of_task-1, perturbated_eps=parameters['perturbated_epsilon'])
+            current_interval  = hypernetwork.get_interval_around_emb(no_of_task, perturbated_eps=parameters['perturbated_epsilon'])
 
             # Logits for the previous embedding
             z_u_prev_emb = previous_embedding + previous_interval
@@ -1042,8 +973,8 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
                                                 f'results_intersection.csv',
                                                 sep=';')
         else:
-            current_embedding = deepcopy(hypernetwork.get_cond_in_emb(0))
-            current_interval  = deepcopy(hypernetwork.get_interval_around_emb(0, perturbated_eps=parameters['perturbated_epsilon']))
+            current_embedding = hypernetwork.get_cond_in_emb(0)
+            current_interval  = hypernetwork.get_interval_around_emb(0, perturbated_eps=parameters['perturbated_epsilon'])
             z_inter_emb = current_embedding + current_interval/2.0
 
             # Evaluate previous tasks
@@ -1174,7 +1105,7 @@ if __name__ == "__main__":
     dataset = 'PermutedMNIST'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST'
     part = 0
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") # Generate timestamp
-    create_grid_search = True
+    create_grid_search = False
 
     if create_grid_search:
         summary_results_filename = 'grid_search_results'
