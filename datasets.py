@@ -152,16 +152,16 @@ def set_hyperparameters(dataset,
     if dataset == 'PermutedMNIST':
         if grid_search:
             hyperparams = {
-                'embedding_sizes': [8, 16, 24],
+                'strategy': [0,1,2],
+                'embedding_sizes': [24],
                 'learning_rates': [0.001, 0.01],
                 'batch_sizes': [128],
                 'betas': [0.001, 0.005, 0.0005],
-                'rhos': [1.0, 0.1, 0.01],
-                'hypernetworks_hidden_layers': [[25, 25], [100, 100]],
-                'perturbated_epsilon': [10.0, 5.0, 1.0],
+                'rhos': [0.1, 0.01, 0.001],
+                'hypernetworks_hidden_layers': [[100, 100]],
+                'perturbated_epsilon': [5.0, 3.0, 1.0],
                 'gammas': [0.01, 0.001, 0.0005],
                 'best_model_selection_method': 'val_loss',
-                'strategy': [0,1,2],
                 # not for optimization
                 'seed': [1, 2, 3, 4, 5]
             }
@@ -185,8 +185,8 @@ def set_hyperparameters(dataset,
                 'gammas': [0.0005],
                 'rhos': [1],
                 'perturbated_epsilon': [2.0],
+                'strategy': [2],
                 'hypernetworks_hidden_layers': [[100, 100]],
-                'strategy': [0],
                 'best_model_selection_method': 'val_loss',
                 'saving_folder': './Results/'
                 f'permuted_mnist_final_grid_experiments/val_loss/'
@@ -194,7 +194,7 @@ def set_hyperparameters(dataset,
 
         # Both in the grid search and individual runs
         hyperparams['lr_scheduler'] = False
-        hyperparams['number_of_iterations'] = 50
+        hyperparams['number_of_iterations'] = 5000
         hyperparams['number_of_epochs'] = None
         hyperparams['no_of_validation_samples'] = 500
         hyperparams['target_hidden_layers'] = [1000, 1000]
@@ -209,13 +209,14 @@ def set_hyperparameters(dataset,
         # Directly related to the MNIST dataset
         hyperparams['padding'] = 2
         hyperparams['shape'] = (28 + 2 * hyperparams['padding'])**2
-        hyperparams['number_of_tasks'] = 2
+        hyperparams['number_of_tasks'] = 10
         hyperparams['augmentation'] = False
 
 
     elif dataset == 'CIFAR100':
         if grid_search:
             hyperparams = {
+                'strategy': [0,1,2],
                 'seed': [1,2,3,4,5],
                 'embedding_sizes': [48],
                 'betas': [0.01, 0.1, 1.0],
@@ -224,7 +225,7 @@ def set_hyperparameters(dataset,
                 'learning_rates': [0.001],
                 'batch_sizes': [32],
                 'hypernetworks_hidden_layers': [[100]],
-                'perturbated_epsilon': [10, 5, 1],
+                'perturbated_epsilon': [5, 3, 1],
                 'resnet_number_of_layer_groups': 3,
                 'resnet_widening_factor': 2,
                 'optimizer': 'adam',
@@ -263,12 +264,13 @@ def set_hyperparameters(dataset,
             hyperparams['saving_folder'] = (
                 '/shared/results/pkrukowski/HyperIntervalResults/forced_intervals/grid_search_relu/'
                 f'CIFAR-100_single_seed/'
-                f'part_{part}_ResNet_stronger_reg/'
+                f'part_{part}_ZenkeNet_stronger_reg/'
             )
 
         else:
             # single run experiment
             hyperparams = {
+                'strategy': [0],
                 'seed': [3],
                 'embedding_sizes': [48],
                 'betas': [0.01],
@@ -325,10 +327,11 @@ def set_hyperparameters(dataset,
         if grid_search:
             hyperparams = {
                 'learning_rates': [0.001],
+                'strategy': [0,1,2],
                 'batch_sizes': [64, 128],
                 'betas': [0.01, 0.001],
                 'hypernetworks_hidden_layers': [[10, 10], [25, 25], [50, 50]],
-                'perturbated_epsilon': [10.0, 5.0, 1.0],
+                'perturbated_epsilon': [5.0, 3.0, 1.0],
                 'gammas': [0.01, 0.001, 0.0001],
                 'rhos': [1.0, 0.1, 0.01],
                 # seed is not for optimization but for ensuring multiple results
@@ -355,6 +358,7 @@ def set_hyperparameters(dataset,
         else:
             # single run experiment
             hyperparams = {
+                'strategy': [0],
                 'seed': [3],
                 'embedding_sizes': [128],
                 'learning_rates': [0.001],
