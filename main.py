@@ -869,8 +869,8 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
 
     for no_of_task in range(no_tasks):
 
-        if no_of_task > 0:
-            hypernetwork.internal_params[no_of_task] = hypernetwork.internal_params[no_of_task-1].clone()
+        # if no_of_task > 0:
+        #     hypernetwork.internal_params[no_of_task] = hypernetwork.internal_params[no_of_task-1].clone()
 
         hypernetwork, target_network = train_single_task(
             hypernetwork,
