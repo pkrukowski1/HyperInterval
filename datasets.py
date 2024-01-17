@@ -152,6 +152,7 @@ def set_hyperparameters(dataset,
     if dataset == 'PermutedMNIST':
         if grid_search:
             hyperparams = {
+                'custom_init': [True, False],
                 'strategy': [0,1,2],
                 'embedding_sizes': [24],
                 'learning_rates': [0.001, 0.01],
@@ -177,6 +178,7 @@ def set_hyperparameters(dataset,
         else:
             # single run experiment
             hyperparams = {
+                'custom_init': [True],
                 'seed': [3],
                 'embedding_sizes': [24],
                 'learning_rates': [0.001],
@@ -216,6 +218,7 @@ def set_hyperparameters(dataset,
     elif dataset == 'CIFAR100':
         if grid_search:
             hyperparams = {
+                'custom_init': [True, False],
                 'strategy': [0,1,2],
                 'seed': [1,2,3,4,5],
                 'embedding_sizes': [48],
@@ -270,6 +273,7 @@ def set_hyperparameters(dataset,
         else:
             # single run experiment
             hyperparams = {
+                'custom_init': [True],
                 'strategy': [0],
                 'seed': [3],
                 'embedding_sizes': [48],
@@ -326,6 +330,7 @@ def set_hyperparameters(dataset,
     elif dataset == 'SplitMNIST':
         if grid_search:
             hyperparams = {
+                'custom_init': [True, False],
                 'learning_rates': [0.001],
                 'strategy': [0,1,2],
                 'batch_sizes': [64, 128],
@@ -358,6 +363,7 @@ def set_hyperparameters(dataset,
         else:
             # single run experiment
             hyperparams = {
+                'custom_init': [True],
                 'strategy': [0],
                 'seed': [3],
                 'embedding_sizes': [128],

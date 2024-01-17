@@ -865,11 +865,12 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
     results_from_interval_intersection = pd.DataFrame(columns=[
                     'after_learning_of_task', 'tested_task', 'accuracy'])
 
-
     for no_of_task in range(no_tasks):
 
-        # if no_of_task > 0:
-        #     hypernetwork.internal_params[no_of_task] = hypernetwork.internal_params[no_of_task-1].clone()
+        if parameters['custom_init']:
+            print("Custom initialization is applied...")
+            if no_of_task > 0:
+                hypernetwork.internal_params[no_of_task] = hypernetwork.internal_params[no_of_task-1].clone()
 
         hypernetwork, target_network = train_single_task(
             hypernetwork,
@@ -1175,7 +1176,8 @@ if __name__ == "__main__":
                 hyperparameters["gammas"],
                 hyperparameters["rhos"],
                 hyperparameters["perturbated_epsilon"],
-                hyperparameters["strategy"])
+                hyperparameters["strategy"],
+                hyperparameters["custom_init"])
     ):
         embedding_size = elements[0]
         learning_rate = elements[1]
@@ -1186,6 +1188,7 @@ if __name__ == "__main__":
         rho = elements[7]
         perturbated_eps = elements[8]
         strategy = elements[9]
+        custom_init = elements[10]
 
         # Of course, seed is not optimized but it is easier to prepare experiments
         # for multiple seeds in such a way
@@ -1227,7 +1230,8 @@ if __name__ == "__main__":
             'summary_results_filename': summary_results_filename,
             'perturbated_epsilon': perturbated_eps,
             'kappa': hyperparameters["kappa"],
-            'strategy': strategy
+            'strategy': strategy,
+            'custom_init': custom_init
         }
 
         os.makedirs(f"{parameters['saving_folder']}", exist_ok=True)
