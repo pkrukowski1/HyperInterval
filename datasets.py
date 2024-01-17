@@ -10,7 +10,7 @@ import torch
 from hypnettorch.data.special import permuted_mnist
 from hypnettorch.data.special.split_cifar import SplitCIFAR100Data
 from hypnettorch.data.special.split_mnist import get_split_mnist_handlers
-
+from TinyImageNet import TinyImageNet
 
 def generate_random_permutations(shape_of_data_instance,
                                  number_of_permutations):
@@ -128,6 +128,46 @@ def prepare_split_mnist_tasks(datasets_folder,
         num_tasks=number_of_tasks,
         use_torch_augmentation=use_augmentation
     )
+
+def prepare_tinyimagenet_tasks(
+    datasets_folder, seed,
+    validation_size=250, number_of_tasks=40
+):
+    """
+    Prepare a list of *number_of_tasks* tasks related
+    to the TinyImageNet dataset according to the WSN setup.
+
+    Arguments:
+    ----------
+      *datasets_folder*: (string) Defines a path in which TinyImageNet
+                         is stored / will be downloaded 
+      *seed*: (int) Necessary for the preparation of random permutation
+              of the order of classes in consecutive tasks.
+      *validation_size*: (optional int) defines the number of validation
+                         samples in each task, by default it is 250 like
+                         in the case of WSN
+      *number_of_tasks*: (optional int) defines the number of continual
+                         learning tasks (by default: 40)
+    
+    Returns a list of TinyImageNet objects.
+    """
+    # Set randomly the order of classes
+    rng = np.random.default_rng(seed)
+    class_permutation = rng.permutation(200)
+    # 40 classification tasks with 5 classes in each
+    handlers = []
+    for i in range(0, 5 * number_of_tasks, 5):
+        current_labels = class_permutation[i:(i + 5)]
+        print(f'Order of classes in the current task: {current_labels}')
+        handlers.append(
+            TinyImageNet(
+                data_path=datasets_folder,
+                validation_size=validation_size,
+                use_one_hot=True,
+                labels=current_labels
+            )
+        )
+    return handlers
 
 
 def set_hyperparameters(dataset,
@@ -308,6 +348,118 @@ def set_hyperparameters(dataset,
             hyperparams['saving_folder'] = (
                 './Results/grid_search_relu/'
                 f'CIFAR-100_single_seed/'
+                f'part_{part}_final_run/'
+            )
+        hyperparams['lr_scheduler'] = True
+        hyperparams['number_of_iterations'] = None
+        hyperparams['no_of_validation_samples'] = 500
+
+        if hyperparams['target_network'] in ['ResNet', 'ZenkeNet']:
+            hyperparams['shape'] = 32
+            hyperparams['target_hidden_layers'] = None
+        elif hyperparams['target_network'] == 'MLP':
+            hyperparams['shape'] = 3072
+            hyperparams['target_hidden_layers'] = [1000, 1000]
+        hyperparams['number_of_tasks'] = 10
+        hyperparams['chunk_size'] = 100
+        hyperparams['chunk_emb_size'] = 32
+        # hyperparams['use_chunks'] = False
+        hyperparams['padding'] = None
+        hyperparams['best_model_selection_method'] = 'val_loss'
+
+    elif dataset == 'TinyImageNet':
+        if grid_search:
+            hyperparams = {
+                'custom_init': [True, False],
+                'strategy': [0,1,2],
+                'seed': [1,2,3,4,5],
+                'embedding_sizes': [48],
+                'betas': [0.01, 0.1, 1.0],
+                'gammas': [0.01, 0.1, 1.0],
+                'rhos': [1.0, 0.1, 0.01],
+                'learning_rates': [0.001],
+                'batch_sizes': [32],
+                'hypernetworks_hidden_layers': [[100]],
+                'perturbated_epsilon': [5, 3, 1],
+                'resnet_number_of_layer_groups': 3,
+                'resnet_widening_factor': 2,
+                'optimizer': 'adam',
+                'use_batch_norm': True,
+                'target_network': 'ZenkeNet',
+                'use_chunks': False,
+                'number_of_epochs': 200,
+                'augmentation': True
+            }
+            if part == 0:
+                # Use default grid search hyperparameters
+                pass
+            elif part == 1:
+                hyperparams['betas'] = [0.1]
+                hyperparams['gammas'] = [1]
+                hyperparams['seed'] = [5, 4]
+            elif part == 2:
+                hyperparams['betas'] = [1]
+                hyperparams['gammas'] = [1]
+                hyperparams['seed'] = [5, 4]
+            elif part == 6:
+                hyperparams['betas'] = [0.01, 0.1, 1, 0.05]
+                hyperparams['gammas'] = [0.01]
+            elif part == 7:
+                hyperparams['target_network'] = 'ZenkeNet'
+                hyperparams['resnet_number_of_layer_groups'] = None
+                hyperparams['resnet_widening_factor'] = None
+                hyperparams['number_of_epochs'] = 200
+                hyperparams['use_chunks'] = False
+                hyperparams['use_batch_norm'] = False
+                hyperparams['seed'] = [4, 5]
+                hyperparams['betas'] = [0.01]
+                hyperparams['gammas'] = [0.01]
+            else:
+                raise ValueError(f'Wrong argument: {part}!')
+            hyperparams['saving_folder'] = (
+                '/shared/results/pkrukowski/HyperIntervalResults/forced_intervals/grid_search_relu/'
+                f'TinyImageNet/'
+                f'part_{part}_ZenkeNet/'
+            )
+
+        else:
+            # single run experiment
+            hyperparams = {
+                'custom_init': [True],
+                'strategy': [0],
+                'seed': [3],
+                'embedding_sizes': [48],
+                'betas': [0.01],
+                'gammas': [0.0001],
+                'rhos': [0.1],
+                'batch_sizes': [32],
+                'learning_rates': [0.001],
+                'perturbated_epsilon': [10.0],
+                'hypernetworks_hidden_layers': [[100]],
+                'use_batch_norm': False,
+                'use_chunks': False,
+                'resnet_number_of_layer_groups': 3,
+                'resnet_widening_factor': 2,
+                'number_of_epochs': 200,
+                'target_network': 'ResNet',
+                'optimizer': 'adam',
+                'augmentation': True
+            }
+            if part == 0:
+                pass
+            elif part == 1:
+                hyperparams['embedding_sizes'] = [48]
+                hyperparams['hypernetworks_hidden_layers'] = [[100]]
+                hyperparams['betas'] = [0.01]
+                hyperparams['gammas'] = [0.01]
+                hyperparams['target_network'] = 'ZenkeNet'
+                hyperparams['resnet_number_of_layer_groups'] = None
+                hyperparams['resnet_widening_factor'] = None
+            else:
+                raise ValueError(f'Wrong argument: {part}!')
+            hyperparams['saving_folder'] = (
+                './Results/grid_search_relu/'
+                f'TinyImageNet/'
                 f'part_{part}_final_run/'
             )
         hyperparams['lr_scheduler'] = True
