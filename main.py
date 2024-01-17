@@ -449,8 +449,7 @@ def plot_heatmap(load_path):
 
 def plot_intervals_around_embeddings(tasks_embeddings_list,
                                      save_folder,
-                                     perturbated_epsilon_list,
-                                     n_embs_to_plot=30):
+                                     perturbated_epsilon_list):
     """
     Plot intervals with trained radii around tasks' embeddings for
     all tasks at once
@@ -479,7 +478,7 @@ def plot_intervals_around_embeddings(tasks_embeddings_list,
     for task_id, (tasks_embeddings, tasks_intervals) in enumerate(zip(tasks_embeddings_list, perturbated_epsilon_list)):
         
         # Take first `n_embs_to_plot` embeddings' values
-        tasks_embeddings = tasks_embeddings.cpu().detach().numpy()[:n_embs_to_plot]
+        tasks_embeddings = tasks_embeddings.cpu().detach().numpy()
         tasks_intervals  = tasks_intervals.cpu().detach().numpy()
 
         # Generate an x axis
