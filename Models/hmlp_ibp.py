@@ -62,7 +62,8 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         """
 
         # Get the embedding
-        emb = self.get_cond_in_emb(cond_id=task_id)
+        emb = self.get_cond_in_emb(cond_id=task_id).detach()
+        emb = torch.abs(emb)
 
         # Get the intervals
         radii = perturbated_eps * F.softmax(emb)
@@ -145,7 +146,7 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         # Normalization step - we give to the neural net a chance to
         # decide about length of interval around each dimension of
         # embedding
-        eps = perturbated_eps*F.softmax(h, dim=1)
+        eps = perturbated_eps*F.softmax(torch.abs(h), dim=1)
 
         for i in range(len(fc_weights)):
             last_layer = i == (len(fc_weights) - 1)
