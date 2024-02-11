@@ -192,13 +192,6 @@ def load_and_evaluate_networks(path_to_datasets,
                 forward_transfer=forward_transfer
             )
 
-        # Load and prepare target network
-        loaded_target_model = load_pickle_file(
-            f'{path_to_stored_networks}target_network_after_{loading_task}_task.pt')
-        target_weights = apply_mask_to_weights_of_network(
-            loaded_target_model,
-            masks)
-
         # During testing a random network on the i-th task we have to compare
         # it with the network trained on the (i-1)-th task
         parameters = {
