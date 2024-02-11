@@ -65,6 +65,18 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         assert isinstance(value, torch.Tensor), "Assigned value should be a PyTorch tensor!"
 
         self._perturbated_eps_T[task_id] = value
+
+    @property
+    def internal_params(self):
+        return self._internal_params
+    
+    @internal_params.setter
+    def internal_params(self, task_id, value):
+
+        assert isinstance(task_id, int), "Task's id should be an integer!"
+        assert isinstance(value, torch.Tensor), "Assigned value should be a PyTorch tensor!"
+
+        self._internal_params[task_id] = value
     
 
     def forward(self, uncond_input=None, cond_input=None, cond_id=None,
@@ -112,14 +124,16 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         if isinstance(cond_id, list):
             cond_id = cond_id[0]
 
-        if perturbated_eps is None:
-            eps = self._perturbated_eps * F.softmax(self._perturbated_eps_T[cond_id], dim=-1)
+        if cond_id is not None:
+            if perturbated_eps is None:
+                eps = self._perturbated_eps * F.softmax(self._perturbated_eps_T[cond_id], dim=-1)
+            else:
+                eps = perturbated_eps * F.softmax(self._perturbated_eps_T[cond_id], dim=-1)
+                self.perturbated_eps_T[cond_id] = eps
         else:
-            eps = perturbated_eps * F.softmax(self._perturbated_eps_T[cond_id], dim=-1)
-        
+            eps = torch.zeros_like(cond_input)
+        print(eps.sum())
         eps = eps.to(self._device)
-        
-        self.perturbated_eps_T[cond_id] = eps
 
         ### Extract layer weights ###
         bn_scales = []

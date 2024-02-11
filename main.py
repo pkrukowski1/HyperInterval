@@ -1,6 +1,7 @@
 import os
 import random
 import torch
+import torch.nn as nn
 from typing import cast
 from torch import Tensor
 import torch.nn.functional as F
@@ -326,8 +327,10 @@ def evaluate_previous_tasks_for_intersection(hypernetwork,
     # as well as for the last trained task
     hypernetwork.eval()
     target_network.eval()
+
+    # We don't need intervals here, so eps = 0
     inter_target_weights = hypernetwork.forward(cond_input=input_to_target_network.view(1,-1),
-                                                perturbated_eps=parameters['perturbated_epsilon'])
+                                                perturbated_eps=0.0)
 
     for task in range(parameters['number_of_task'] + 1):
         # Target entropy calculation should be included here: hypernetwork has to be inferred
@@ -614,8 +617,8 @@ def train_single_task(hypernetwork,
         # # so we need to revert the order
 
         
-        # assert (lower_pred <= middle_pred).all(), "Lower bound must be less than or equal to middle bound."
-        # assert (middle_pred <= upper_pred).all(), "Middle bound must be greater than or equal to upper bound."
+        assert (lower_pred <= middle_pred).all(), "Lower bound must be less than or equal to middle bound."
+        assert (middle_pred <= upper_pred).all(), "Middle bound must be greater than or equal to upper bound."
 
         # We need to check wheter the distance between the lower weights
         # and the upper weights isn't collapsed into "one point" (short interval)
@@ -631,6 +634,17 @@ def train_single_task(hypernetwork,
             kappa=kappa
         )
 
+        # Calculate loss component which is responsible for staying tasks' embeddings
+        # within the same region
+        loss_embedding = 0.0
+        if current_no_of_task > 0:
+            first_embedding = hypernetwork.internal_params[0]
+
+            for task_id in range(1, current_no_of_task+1):
+                curr_embedding  = hypernetwork.internal_params[task_id]
+                loss_embedding += (first_embedding - curr_embedding).pow(2).mean()
+
+
         loss_regularization = 0.
         if current_no_of_task > 0:
             loss_regularization = hreg.calc_fix_target_reg(
@@ -645,7 +659,8 @@ def train_single_task(hypernetwork,
         # Calculate total loss
         loss = loss_current_task + \
             parameters['beta'] * loss_regularization / max(1, current_no_of_task) - \
-            parameters['gamma'] * loss_weights
+            parameters['gamma'] * loss_weights + \
+            parameters['rho'] * loss_embedding
         
         # Save total loss to file
         append_row_to_file(
@@ -812,6 +827,9 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
     criterion = IBP_Loss()
     dataframe = pd.DataFrame(columns=[
         'after_learning_of_task', 'tested_task', 'accuracy'])
+    
+    results_from_interval_intersection = pd.DataFrame(columns=[
+                    'after_learning_of_task', 'tested_task', 'accuracy'])
 
     if (parameters['target_network'] == 'ResNet') and \
        parameters['use_batch_norm']:
@@ -825,6 +843,11 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
     no_tasks = parameters['number_of_tasks']
 
     for no_of_task in range(no_tasks):
+
+        if parameters['custom_init']:
+            print("Custom initialization is applied...")
+            if no_of_task > 0:
+                hypernetwork.internal_params[no_of_task] = nn.Parameter(hypernetwork.internal_params[no_of_task-1].clone())
 
         hypernetwork, target_network = train_single_task(
             hypernetwork,
@@ -868,6 +891,41 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
         dataframe.to_csv(f'{parameters["saving_folder"]}/'
                          f'results.csv',
                          sep=';')
+        
+        ### Evaluate tasks using weights generated from the intersection of
+        # tasks' embeddings
+
+        # Get the first task's embedding and calculate the common embedding
+        # as average
+        common_embedding = hypernetwork.internal_params[0]
+        
+        for task_id in range(1, no_of_task+1):
+            common_embedding += hypernetwork.internal_params[task_id]
+        
+        common_embedding /= no_of_task
+
+
+        # Evaluate previous tasks for intersection
+        results_from_interval_intersection = evaluate_previous_tasks_for_intersection(
+                                                hypernetwork,
+                                                target_network,
+                                                common_embedding,
+                                                results_from_interval_intersection,
+                                                dataset_list_of_tasks,
+                                                parameters={
+                                                    'device': parameters['device'],
+                                                    'use_batch_norm_memory': use_batch_norm_memory,
+                                                    'number_of_task': no_of_task,
+                                                    'perturbated_epsilon': parameters['perturbated_epsilon']
+                                                }
+                                            )
+        results_from_interval_intersection = results_from_interval_intersection.astype({
+                                                'after_learning_of_task': 'int',
+                                                'tested_task': 'int'
+                                            })
+        results_from_interval_intersection.to_csv(f'{parameters["saving_folder"]}/'
+                                            f'results_intersection.csv',
+                                            sep=';')
                 
 
     # Plot intervals over tasks' embeddings plot
@@ -1009,7 +1067,9 @@ if __name__ == "__main__":
                 hyperparameters["seed"],
                 hyperparameters["gammas"],
                 hyperparameters["perturbated_epsilon"],
-                hyperparameters["dropout_rate"])
+                hyperparameters["dropout_rate"],
+                hyperparameters["rhos"],
+                hyperparameters['custom_init'])
     ):
         embedding_size = elements[0]
         learning_rate = elements[1]
@@ -1019,6 +1079,8 @@ if __name__ == "__main__":
         gamma_par = elements[6]
         perturbated_eps = elements[7]
         dropout_rate = elements[8]
+        rho = elements[9]
+        custom_init = elements[10]
 
         # Of course, seed is not optimized but it is easier to prepare experiments
         # for multiple seeds in such a way
@@ -1060,7 +1122,9 @@ if __name__ == "__main__":
             'summary_results_filename': summary_results_filename,
             'perturbated_epsilon': perturbated_eps,
             'kappa': hyperparameters["kappa"],
-            'dropout_rate': dropout_rate
+            'dropout_rate': dropout_rate,
+            'rho': rho,
+            'custom_init': custom_init
         }
 
         os.makedirs(f"{parameters['saving_folder']}", exist_ok=True)
