@@ -124,14 +124,13 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         if isinstance(cond_id, list):
             cond_id = cond_id[0]
 
-        if cond_id is not None:
-            if perturbated_eps is None:
-                eps = self._perturbated_eps * F.softmax(self._perturbated_eps_T[cond_id], dim=-1)
-            else:
-                eps = perturbated_eps * F.softmax(self._perturbated_eps_T[cond_id], dim=-1)
-                self.perturbated_eps_T[cond_id] = eps
-        else:
+        if perturbated_eps is None or cond_id is None:
             eps = torch.zeros_like(cond_input)
+        else:
+            eps = perturbated_eps * F.softmax(self._perturbated_eps_T[cond_id], dim=-1)
+            self.perturbated_eps_T[cond_id] = eps
+
+
         print(eps.sum())
         eps = eps.to(self._device)
 

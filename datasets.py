@@ -374,14 +374,14 @@ def set_hyperparameters(dataset,
                 'custom_init': [True, False],
                 'learning_rates': [0.001],
                 'batch_sizes': [64, 128],
-                'betas': [0.01, 0.001],
+                'betas': [0.1, 0.01, 0.001],
                 'hypernetworks_hidden_layers': [[25, 25], [50, 50]],
                 'dropout_rate': [-1, 0.25, 0.5],
                 'perturbated_epsilon': [10, 5, 1, 0.5],
                 'rhos': [0.1, 0.01, 0.001],
-                'gammas': [0.01, 0.001],
+                'gammas': [0.0, 0.01, 0.001, 0.0001],
                 # seed is not for optimization but for ensuring multiple results
-                'seed': [1, 2, 3, 4, 5],
+                'seed': [1],
                 'best_model_selection_method': 'val_loss',
                 'embedding_sizes': [8, 16, 24],
                 'augmentation': True
@@ -412,7 +412,7 @@ def set_hyperparameters(dataset,
                 'batch_sizes': [1],
                 'betas': [0.001],
                 'perturbated_epsilon': [0.5],
-                'dropout_rate': [-1, 0.25, 0.5],
+                'dropout_rate': [-1],
                 'gammas': [0.001],
                 'rhos': [0.01],
                 'hypernetworks_hidden_layers': [[25, 25]],
@@ -425,7 +425,7 @@ def set_hyperparameters(dataset,
         hyperparams['resnet_number_of_layer_groups'] = None
         hyperparams['resnet_widening_factor'] = None
         hyperparams['optimizer'] = 'adam'
-        hyperparams['number_of_iterations'] = 2000
+        hyperparams['number_of_iterations'] = 10
         hyperparams['number_of_epochs'] = None
         hyperparams['no_of_validation_samples'] = 1000
         hyperparams['target_hidden_layers'] = [2, 3]

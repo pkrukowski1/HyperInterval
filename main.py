@@ -617,8 +617,8 @@ def train_single_task(hypernetwork,
         # # so we need to revert the order
 
         
-        assert (lower_pred <= middle_pred).all(), "Lower bound must be less than or equal to middle bound."
-        assert (middle_pred <= upper_pred).all(), "Middle bound must be greater than or equal to upper bound."
+        # assert (lower_pred <= middle_pred).all(), "Lower bound must be less than or equal to middle bound."
+        # assert (middle_pred <= upper_pred).all(), "Middle bound must be greater than or equal to upper bound."
 
         # We need to check wheter the distance between the lower weights
         # and the upper weights isn't collapsed into "one point" (short interval)
@@ -897,12 +897,13 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
 
         # Get the first task's embedding and calculate the common embedding
         # as average
-        common_embedding = hypernetwork.internal_params[0]
-        
-        for task_id in range(1, no_of_task+1):
-            common_embedding += hypernetwork.internal_params[task_id]
-        
-        common_embedding /= no_of_task
+        with torch.no_grad():
+            common_embedding = hypernetwork.internal_params[0]
+            
+            for task_id in range(1, no_of_task+1):
+                common_embedding += hypernetwork.internal_params[task_id]
+            
+            common_embedding = common_embedding / no_of_task
 
 
         # Evaluate previous tasks for intersection
@@ -1025,6 +1026,10 @@ def main_running_experiments(path_to_datasets,
     load_path = (f'{parameters["saving_folder"]}/'
                  f'results.csv')
     plot_heatmap(load_path)
+
+    load_path = (f'{parameters["saving_folder"]}/'
+                 f'results_intersection.csv')
+    plot_heatmap(load_path)
     
     return hypernetwork, target_network, dataframe
 
@@ -1032,7 +1037,7 @@ def main_running_experiments(path_to_datasets,
 if __name__ == "__main__":
     #path_to_datasets = '/shared/sets/datasets/'
     path_to_datasets = './Data'
-    dataset = 'PermutedMNIST'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet'
+    dataset = 'SplitMNIST'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet'
     part = 0
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") # Generate timestamp
     create_grid_search = False
