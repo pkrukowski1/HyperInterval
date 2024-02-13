@@ -224,11 +224,11 @@ def set_hyperparameters(dataset,
                 'custom_init': [True],
                 'seed': [3],
                 'embedding_sizes': [24],
-                'rhos': [0.1, 0.01, 0.001],
+                'rhos': [0.001],
                 'learning_rates': [0.001],
                 'batch_sizes': [128],
                 'betas': [0.005],
-                'gammas': [0.0],
+                'gammas': [0.0001],
                 'perturbated_epsilon': [10.0],
                 'hypernetworks_hidden_layers': [[100, 100]],
                 'dropout_rate': [-1],
@@ -239,7 +239,7 @@ def set_hyperparameters(dataset,
 
         # Both in the grid search and individual runs
         hyperparams['lr_scheduler'] = False
-        hyperparams['number_of_iterations'] = 300
+        hyperparams['number_of_iterations'] = 5000
         hyperparams['number_of_epochs'] = None
         hyperparams['no_of_validation_samples'] = 500
         hyperparams['target_hidden_layers'] = [1000, 1000]
@@ -254,7 +254,7 @@ def set_hyperparameters(dataset,
         # Directly related to the MNIST dataset
         hyperparams['padding'] = 2
         hyperparams['shape'] = (28 + 2 * hyperparams['padding'])**2
-        hyperparams['number_of_tasks'] = 3
+        hyperparams['number_of_tasks'] = 10
         hyperparams['augmentation'] = False
 
 
@@ -405,30 +405,29 @@ def set_hyperparameters(dataset,
             # single run experiment
             hyperparams = {
                 'custom_init': [True],
-                'strategy': [0],
                 'seed': [3],
-                'embedding_sizes': [128],
+                'embedding_sizes': [24],
                 'learning_rates': [0.001],
-                'batch_sizes': [1],
+                'batch_sizes': [64],
                 'betas': [0.001],
-                'perturbated_epsilon': [0.5],
+                'perturbated_epsilon': [10.0],
                 'dropout_rate': [-1],
-                'gammas': [0.001],
+                'gammas': [0.1],
                 'rhos': [0.01],
-                'hypernetworks_hidden_layers': [[25, 25]],
-                'augmentation': True,
-                'best_model_selection_method': 'last_model',
-                'saving_folder': './Results/SplitMNIST/norm_test/'
+                'hypernetworks_hidden_layers': [[100]],
+                'augmentation': False,
+                'best_model_selection_method': 'val_loss',
+                'saving_folder': './Results/SplitMNIST/'
             }
         hyperparams['lr_scheduler'] = False
         hyperparams['target_network'] = 'MLP'
         hyperparams['resnet_number_of_layer_groups'] = None
         hyperparams['resnet_widening_factor'] = None
         hyperparams['optimizer'] = 'adam'
-        hyperparams['number_of_iterations'] = 10
+        hyperparams['number_of_iterations'] = 100
         hyperparams['number_of_epochs'] = None
         hyperparams['no_of_validation_samples'] = 1000
-        hyperparams['target_hidden_layers'] = [2, 3]
+        hyperparams['target_hidden_layers'] = [1000, 1000]
         hyperparams['shape'] = 28**2
         hyperparams['number_of_tasks'] = 5
         hyperparams['chunk_size'] = 100

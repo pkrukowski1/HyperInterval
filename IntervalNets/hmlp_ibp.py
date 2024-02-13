@@ -130,8 +130,6 @@ class HMLP_IBP(HMLP, HyperNetInterface):
             eps = perturbated_eps * F.softmax(self._perturbated_eps_T[cond_id], dim=-1)
             self.perturbated_eps_T[cond_id] = eps
 
-
-        print(eps.sum())
         eps = eps.to(self._device)
 
         ### Extract layer weights ###

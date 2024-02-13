@@ -30,6 +30,18 @@ from datasets import (
     prepare_tinyimagenet_tasks,
 )
 
+def calculate_frechet_distance(x, y):
+    """
+    Calculate Frechet distance between two tensors
+    """
+    mu_x = x.mean()
+    mu_y = y.mean()
+
+    var_x = torch.var(x)
+    var_y = torch.var(y)
+
+    return (mu_x - mu_y).pow(2) + (var_x - var_y).pow(2)
+
 def set_seed(value):
     '''
     Set deterministic results according to the given value
@@ -424,7 +436,7 @@ def plot_intervals_around_embeddings(hypernetwork,
     n_embs   = len(hypernetwork.get_cond_in_emb(0))
 
     embds = [
-        hypernetwork.get_cond_in_emb(i) for i in range(no_tasks)
+        hypernetwork.internal_params[i] for i in range(no_tasks)
     ]
     radii = hypernetwork.perturbated_eps_T
     
@@ -445,6 +457,7 @@ def plot_intervals_around_embeddings(hypernetwork,
         plt.scatter(x, tasks_embeddings, label=f'Task_{task_id}', marker='o', c=[colors[task_id]])
 
         # Draw horizontal lines around the dots
+
         for i in range(len(x)):
             plt.vlines(x[i], ymin=tasks_embeddings[i] - tasks_intervals[i],
                         ymax=tasks_embeddings[i] + tasks_intervals[i], linewidth=2, colors=[colors[task_id]])
@@ -639,10 +652,13 @@ def train_single_task(hypernetwork,
         loss_embedding = 0.0
         if current_no_of_task > 0:
             first_embedding = hypernetwork.internal_params[0]
+            first_embedding.requires_grad = False
 
             for task_id in range(1, current_no_of_task+1):
-                curr_embedding  = hypernetwork.internal_params[task_id]
-                loss_embedding += (first_embedding - curr_embedding).pow(2).mean()
+                curr_embedding = hypernetwork.internal_params[task_id]
+
+                loss_embedding += (first_embedding - curr_embedding).pow(2).mean() / (current_no_of_task+1) + \
+                                    (torch.var(first_embedding) - torch.var(curr_embedding)).pow(2).mean() / (current_no_of_task+1)
 
 
         loss_regularization = 0.
@@ -847,7 +863,7 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
         if parameters['custom_init']:
             print("Custom initialization is applied...")
             if no_of_task > 0:
-                hypernetwork.internal_params[no_of_task] = nn.Parameter(hypernetwork.internal_params[no_of_task-1].clone())
+                hypernetwork.internal_params[no_of_task] = hypernetwork.internal_params[0]
 
         hypernetwork, target_network = train_single_task(
             hypernetwork,
@@ -900,10 +916,11 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
         with torch.no_grad():
             common_embedding = hypernetwork.internal_params[0]
             
-            for task_id in range(1, no_of_task+1):
-                common_embedding += hypernetwork.internal_params[task_id]
+            if no_of_task > 0:
+                for task_id in range(1, no_of_task+1):
+                    common_embedding += hypernetwork.internal_params[task_id]
             
-            common_embedding = common_embedding / no_of_task
+            common_embedding = common_embedding / (no_of_task+1)
 
 
         # Evaluate previous tasks for intersection
@@ -1037,7 +1054,7 @@ def main_running_experiments(path_to_datasets,
 if __name__ == "__main__":
     #path_to_datasets = '/shared/sets/datasets/'
     path_to_datasets = './Data'
-    dataset = 'SplitMNIST'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet'
+    dataset = 'PermutedMNIST'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet'
     part = 0
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") # Generate timestamp
     create_grid_search = False
