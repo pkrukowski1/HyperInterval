@@ -41,11 +41,23 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         self._perturbated_eps_T = nn.ParameterList()
         self.scale = 1. / (1 - self._dropout_rate)
 
-        ## Create learnable radii ###
+        ### Create learnable radii ###
         for _ in range(num_cond_embs):
-            self._perturbated_eps_T.append(
-                    F.softmax(torch.randn(cond_in_size), dim=-1)
-                )
+            self._perturbated_eps_T.append(nn.Parameter(
+                    data=F.softmax(torch.randn(cond_in_size), dim=-1),
+                    requires_grad=True
+                ))
+            torch.nn.init.uniform_(self._perturbated_eps_T[-1])
+        
+        ### Create learnable parameter alpha ###
+        self._alpha = nn.ParameterList()
+        
+        ### Create conditional weights ###
+        for _ in range(num_cond_embs):
+           self._alpha.append(nn.Parameter(
+               data=torch.Tensor(cond_in_size), requires_grad=True)
+           )
+           torch.nn.init.uniform_(self._alpha[-1])
 
         self._is_properly_setup()
 
@@ -128,7 +140,7 @@ class HMLP_IBP(HMLP, HyperNetInterface):
             eps = torch.zeros_like(cond_input)
         else:
             eps = perturbated_eps * F.softmax(self._perturbated_eps_T[cond_id], dim=-1)
-            self.perturbated_eps_T[cond_id] = eps
+            # self.perturbated_eps_T[cond_id] = eps
 
         eps = eps.to(self._device)
 
