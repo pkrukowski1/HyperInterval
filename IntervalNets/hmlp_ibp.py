@@ -43,11 +43,9 @@ class HMLP_IBP(HMLP, HyperNetInterface):
 
         ### Create learnable radii ###
         for _ in range(num_cond_embs):
-            self._perturbated_eps_T.append(nn.Parameter(
-                    data=torch.Tensor(cond_in_size),
-                    requires_grad=True
-                ))
-            torch.nn.init.uniform_(self._perturbated_eps_T[-1])
+            self._perturbated_eps_T.append(
+                    F.softmax(torch.randn(cond_in_size), dim=-1)
+                )
         
         ### Create learnable parameter alpha ###
         self._alpha = nn.ParameterList()
