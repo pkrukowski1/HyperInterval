@@ -340,9 +340,7 @@ def evaluate_previous_tasks_for_intersection(hypernetwork,
     hypernetwork.eval()
     target_network.eval()
 
-    # We don't need intervals here, so eps = 0
-    inter_target_weights = hypernetwork.forward(cond_input=input_to_target_network.view(1,-1),
-                                                perturbated_eps=0.0)
+    inter_target_weights = hypernetwork.forward(cond_input=input_to_target_network.view(1, -1))
 
     for task in range(parameters['number_of_task'] + 1):
         # Target entropy calculation should be included here: hypernetwork has to be inferred
@@ -646,20 +644,7 @@ def train_single_task(hypernetwork,
             z_u=upper_pred,
             kappa=kappa
         )
-
-        # Calculate loss component which is responsible for staying tasks' embeddings
-        # within the same region
-        loss_embedding = 0.0
-        if current_no_of_task > 0:
-            first_embedding = hypernetwork.internal_params[0]
-            first_embedding.requires_grad = False
-
-            for task_id in range(1, current_no_of_task+1):
-                curr_embedding = hypernetwork.internal_params[task_id]
-
-                loss_embedding += (first_embedding - curr_embedding).pow(2).mean() / (current_no_of_task+1) + \
-                                    (torch.var(first_embedding) - torch.var(curr_embedding)).pow(2).mean() / (current_no_of_task+1)
-
+            
 
         loss_regularization = 0.
         if current_no_of_task > 0:
@@ -675,17 +660,17 @@ def train_single_task(hypernetwork,
         # Calculate total loss
         loss = loss_current_task + \
             parameters['beta'] * loss_regularization / max(1, current_no_of_task) - \
-            parameters['gamma'] * loss_weights + \
-            parameters['rho'] * loss_embedding
+            parameters['gamma'] * loss_weights
         
         # Save total loss to file
         append_row_to_file(
         filename=f'{parameters["saving_folder"]}total_loss.txt',
         elements=f'{current_no_of_task};{iteration};{loss}'
         )
-
+        
         loss.backward()
         optimizer.step()
+
         if parameters['number_of_epochs'] is None:
             condition = (iteration % 10 == 0) or \
                         (iteration == (parameters['number_of_iterations'] - 1))
@@ -863,7 +848,12 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
         if parameters['custom_init']:
             print("Custom initialization is applied...")
             if no_of_task > 0:
-                hypernetwork.internal_params[no_of_task] = hypernetwork.internal_params[0]
+                print(hypernetwork.internal_params[0])
+                hypernetwork.internal_params[no_of_task] = nn.Parameter(
+                    data=hypernetwork.internal_params[0],
+                    requires_grad=True
+                )
+                print(hypernetwork.internal_params[no_of_task])
 
         hypernetwork, target_network = train_single_task(
             hypernetwork,
@@ -914,14 +904,23 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
         # Get the first task's embedding and calculate the common embedding
         # as average
         with torch.no_grad():
-            common_embedding = hypernetwork.internal_params[0]
-            
-            if no_of_task > 0:
-                for task_id in range(1, no_of_task+1):
-                    common_embedding += hypernetwork.internal_params[task_id]
-            
-            common_embedding = common_embedding / (no_of_task+1)
+            middle = hypernetwork.internal_params[0]
 
+            if no_of_task == 0:
+                common_embedding = middle
+
+            elif no_of_task > 0:
+                r = hypernetwork.perturbated_eps_T[0].to(parameters["device"])
+                r = parameters['perturbated_epsilon'] * F.softmax(r, dim=-1)
+                common_embedding = 0.0
+
+                for task_id in range(1, no_of_task+1):
+                    curr_embedding = hypernetwork.internal_params[task_id]
+                    curr_embedding = middle + r * torch.tanh(curr_embedding)
+                    common_embedding += curr_embedding
+
+                common_embedding = common_embedding / (no_of_task+1)
+            
 
         # Evaluate previous tasks for intersection
         results_from_interval_intersection = evaluate_previous_tasks_for_intersection(
@@ -1057,7 +1056,7 @@ if __name__ == "__main__":
     dataset = 'PermutedMNIST'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet'
     part = 0
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") # Generate timestamp
-    create_grid_search = False
+    create_grid_search = True
 
     if create_grid_search:
         summary_results_filename = 'grid_search_results'
@@ -1090,7 +1089,6 @@ if __name__ == "__main__":
                 hyperparameters["gammas"],
                 hyperparameters["perturbated_epsilon"],
                 hyperparameters["dropout_rate"],
-                hyperparameters["rhos"],
                 hyperparameters['custom_init'])
     ):
         embedding_size = elements[0]
@@ -1101,8 +1099,7 @@ if __name__ == "__main__":
         gamma_par = elements[6]
         perturbated_eps = elements[7]
         dropout_rate = elements[8]
-        rho = elements[9]
-        custom_init = elements[10]
+        custom_init = elements[9]
 
         # Of course, seed is not optimized but it is easier to prepare experiments
         # for multiple seeds in such a way
@@ -1145,7 +1142,6 @@ if __name__ == "__main__":
             'perturbated_epsilon': perturbated_eps,
             'kappa': hyperparameters["kappa"],
             'dropout_rate': dropout_rate,
-            'rho': rho,
             'custom_init': custom_init
         }
 
