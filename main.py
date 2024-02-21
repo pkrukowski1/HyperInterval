@@ -297,7 +297,7 @@ def evaluate_previous_tasks(hypernetwork,
 
 def evaluate_previous_tasks_for_intersection(hypernetwork,
                             target_network,
-                            input_to_target_network,
+                            common_embedding,
                             dataframe_results,
                             list_of_permutations,
                             parameters):
@@ -314,7 +314,7 @@ def evaluate_previous_tasks_for_intersection(hypernetwork,
       *target_network* (hypnettorch.mnets module, e.g. mlp.MLP)
                        a target network that finally will perform
                        classification
-      *input_to_target_network* (torch.Tensor): an input to the hypernetwork
+      *no_of_task* (torch.Tensor): an input to the hypernetwork
       *dataframe_results* (Pandas Dataframe) stores results; contains
                           following columns: 'after_learning_of_task',
                           'tested_task' and 'accuracy'
@@ -340,7 +340,7 @@ def evaluate_previous_tasks_for_intersection(hypernetwork,
     hypernetwork.eval()
     target_network.eval()
 
-    inter_target_weights = hypernetwork.forward(cond_input=input_to_target_network.view(1, -1))
+    inter_target_weights = hypernetwork.forward(cond_input = common_embedding.view(1, -1))
 
     for task in range(parameters['number_of_task'] + 1):
         # Target entropy calculation should be included here: hypernetwork has to be inferred
@@ -848,12 +848,10 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
         if parameters['custom_init']:
             print("Custom initialization is applied...")
             if no_of_task > 0:
-                print(hypernetwork.internal_params[0])
                 hypernetwork.internal_params[no_of_task] = nn.Parameter(
                     data=hypernetwork.internal_params[0],
                     requires_grad=True
                 )
-                print(hypernetwork.internal_params[no_of_task])
 
         hypernetwork, target_network = train_single_task(
             hypernetwork,
@@ -904,19 +902,12 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
         # Get the first task's embedding and calculate the common embedding
         # as average
         with torch.no_grad():
-            middle = hypernetwork.internal_params[0]
+            common_embedding = hypernetwork.internal_params[0]
 
-            if no_of_task == 0:
-                common_embedding = middle
-
-            elif no_of_task > 0:
-                r = hypernetwork.perturbated_eps_T[0].to(parameters["device"])
-                r = parameters['perturbated_epsilon'] * F.softmax(r, dim=-1)
-                common_embedding = 0.0
+            if no_of_task > 0:
 
                 for task_id in range(1, no_of_task+1):
                     curr_embedding = hypernetwork.internal_params[task_id]
-                    curr_embedding = middle + r * torch.tanh(curr_embedding)
                     common_embedding += curr_embedding
 
                 common_embedding = common_embedding / (no_of_task+1)

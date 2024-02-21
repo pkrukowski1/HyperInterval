@@ -38,17 +38,13 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         
         self._perturbated_eps   = kwargs["perturbated_eps"]
         self._device            = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self._perturbated_eps_T = nn.ParameterList()
-        # self._perturbated_eps_T = []
+        # self._perturbated_eps_T = nn.ParameterList()
+        self._perturbated_eps_T = []
         self.scale = 1. / (1 - self._dropout_rate)
 
         ### Create learnable radii ###
         for _ in range(num_cond_embs):
-            self._perturbated_eps_T.append(
-                    nn.Parameter(
-                        data = F.softmax(torch.ones(cond_in_size), dim=-1),
-                        requires_grad=True).to(self._device)
-                )
+            self._perturbated_eps_T.append(F.softmax(torch.ones(cond_in_size), dim=-1).to(self._device))
 
         self._is_properly_setup()
 
@@ -127,27 +123,16 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         if isinstance(cond_id, list):
             cond_id = cond_id[0]
 
-        if cond_id is not None:
-            if perturbated_eps is None:
-                eps = self._perturbated_eps * F.softmax(self._perturbated_eps_T[cond_id], dim=-1)
-            else:
-                eps = perturbated_eps * F.softmax(self._perturbated_eps_T[cond_id], dim=-1)
-            
-            eps = eps.to(self._device)
-            
-            self.perturbated_eps_T[cond_id] = eps
-
-            if cond_id > 0:
-                if perturbated_eps is None:
-                    eps_0 = self._perturbated_eps * F.softmax(self._perturbated_eps_T[0], dim=-1)
-                else:
-                    eps_0 = perturbated_eps * F.softmax(self._perturbated_eps_T[0], dim=-1)
-            
-                eps_0 = eps_0.to(self._device)
-
-                h = self.internal_params[0] + eps_0 * torch.tanh(h)
+        if perturbated_eps is None:
+            eps = self._perturbated_eps * F.softmax(self._perturbated_eps_T[cond_id], dim=-1)
         else:
-            eps = torch.zeros_like(h)
+            eps = perturbated_eps * F.softmax(self._perturbated_eps_T[cond_id], dim=-1)
+                
+        self.perturbated_eps_T[cond_id] = eps
+
+        sigma = self._perturbated_eps / (2.0 * self._cond_in_size)
+
+        h = sigma * torch.tanh(h)
 
         ### Extract layer weights ###
         bn_scales = []
