@@ -226,7 +226,7 @@ def set_hyperparameters(dataset,
                 'batch_sizes': [128],
                 'betas': [0.005],
                 'gammas': [0.0],
-                'perturbated_epsilon': [1.0],
+                'perturbated_epsilon': [10.0],
                 'hypernetworks_hidden_layers': [[100, 100]],
                 'dropout_rate': [-1],
                 'best_model_selection_method': 'val_loss',
@@ -236,7 +236,7 @@ def set_hyperparameters(dataset,
 
         # Both in the grid search and individual runs
         hyperparams['lr_scheduler'] = False
-        hyperparams['number_of_iterations'] = 10
+        hyperparams['number_of_iterations'] = 5000
         hyperparams['number_of_epochs'] = None
         hyperparams['no_of_validation_samples'] = 500
         hyperparams['target_hidden_layers'] = [1000, 1000]
@@ -251,7 +251,7 @@ def set_hyperparameters(dataset,
         # Directly related to the MNIST dataset
         hyperparams['padding'] = 2
         hyperparams['shape'] = (28 + 2 * hyperparams['padding'])**2
-        hyperparams['number_of_tasks'] = 5
+        hyperparams['number_of_tasks'] = 10
         hyperparams['augmentation'] = False
 
 

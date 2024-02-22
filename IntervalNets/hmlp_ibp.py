@@ -7,8 +7,8 @@ from hypnettorch.hnets import HMLP
 from hypnettorch.hnets.hnet_interface import HyperNetInterface
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn as nn
 
 class HMLP_IBP(HMLP, HyperNetInterface):
 
@@ -36,15 +36,11 @@ class HMLP_IBP(HMLP, HyperNetInterface):
                  use_batch_norm=use_batch_norm)
 
         
-        self._perturbated_eps   = kwargs["perturbated_eps"]
+        self._perturbated_eps = kwargs["perturbated_eps"]
         self._device            = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # self._perturbated_eps_T = nn.ParameterList()
-        self._perturbated_eps_T = []
+        self._perturbated_eps_T = F.softmax(torch.ones(cond_in_size), dim=-1).to(self._device)
         self.scale = 1. / (1 - self._dropout_rate)
-
-        ### Create learnable radii ###
-        for _ in range(num_cond_embs):
-            self._perturbated_eps_T.append(F.softmax(torch.ones(cond_in_size), dim=-1).to(self._device))
 
         self._is_properly_setup()
 
@@ -57,14 +53,6 @@ class HMLP_IBP(HMLP, HyperNetInterface):
     def perturbated_eps_T(self):
         return self._perturbated_eps_T
     
-    @perturbated_eps_T.setter
-    def perturbated_eps_T(self, task_id, value):
-
-        assert isinstance(task_id, int), "Task's id should be an integer!"
-        assert isinstance(value, torch.Tensor), "Assigned value should be a PyTorch tensor!"
-
-        self._perturbated_eps_T[task_id] = value
-
     @property
     def internal_params(self):
         return self._internal_params
@@ -120,19 +108,13 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         if uncond_input is not None and cond_input is not None:
             h = torch.cat([uncond_input, cond_input], dim=1)
 
-        if isinstance(cond_id, list):
-            cond_id = cond_id[0]
-
         if perturbated_eps is None:
-            eps = self._perturbated_eps * F.softmax(self._perturbated_eps_T[cond_id], dim=-1)
+            eps = self._perturbated_eps * F.softmax(self._perturbated_eps_T, dim=-1)
         else:
-            eps = perturbated_eps * F.softmax(self._perturbated_eps_T[cond_id], dim=-1)
+            eps = perturbated_eps * F.softmax(self._perturbated_eps_T, dim=-1)
                 
-        self.perturbated_eps_T[cond_id] = eps
-
-        sigma = self._perturbated_eps / (2.0 * self._cond_in_size)
-
-        h = sigma * torch.tanh(h)
+        sigma = self._perturbated_eps / (2 * self._cond_in_size)
+        h = self._internal_params[0] + sigma * torch.tanh(h)
 
         ### Extract layer weights ###
         bn_scales = []

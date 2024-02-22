@@ -413,7 +413,9 @@ def plot_heatmap(load_path):
 
 def plot_intervals_around_embeddings(hypernetwork,
                                      parameters,
-                                     save_folder):
+                                     save_folder,
+                                     iteration=None,
+                                     current_task=None):
     """
     Plot intervals with trained radii around tasks' embeddings for
     all tasks at once
@@ -423,45 +425,51 @@ def plot_intervals_around_embeddings(hypernetwork,
         *hypernetwork*: (nn.Module) a trained hypernetwork
         *parameters*: (dictionary) contains necessary hyperparameters
                     describing an experiment
-        *save_folder*: (string) contains folder where the plot will be saved,
+        *save_folder*: (string) contains folder where the plot will be saved
+        *iteration*: (int) an iteration number
     """
 
     # Check if folder exists, if it doesn't then create the folder
     if not os.path.exists(save_folder):
         os.mkdir(save_folder)
 
-    no_tasks = parameters["number_of_tasks"]
-    n_embs   = len(hypernetwork.get_cond_in_emb(0))
+    no_tasks = current_task + 1 if current_task is not None else parameters["number_of_tasks"]
+    n_embs   = parameters["embedding_size"]
+    eps = parameters["perturbated_epsilon"]
+    
+    sigma = eps / (2 * n_embs)
 
     embds = [
-        hypernetwork.internal_params[i] for i in range(no_tasks)
+        hypernetwork.internal_params[0] + sigma * torch.tanh(hypernetwork.internal_params[i]) for i in range(no_tasks)
     ]
-    radii = hypernetwork.perturbated_eps_T
+    radii = eps / n_embs
     
     # Create a plot
     fig    = plt.figure(figsize=(10, 6))
     cm     = plt.get_cmap('gist_rainbow')
     colors = [cm(1.*i/no_tasks) for i in range(no_tasks)]
 
-    for task_id, (tasks_embeddings, tasks_intervals) in enumerate(zip(embds, radii)):
+    for task_id, tasks_embeddings in enumerate(embds):
         
         tasks_embeddings = tasks_embeddings.cpu().detach().numpy()
-        tasks_intervals  = tasks_intervals.cpu().detach().numpy()
 
         # Generate an x axis
         x = [_ for _ in range(parameters["embedding_size"])]
 
         # Create a scatter plot
-        plt.scatter(x, tasks_embeddings, label=f'Task_{task_id}', marker='o', c=[colors[task_id]])
+        plt.scatter(x, tasks_embeddings, label=f'Task_{task_id}', marker='o', c=[colors[task_id]], alpha=0.7)
 
         # Draw horizontal lines around the dots
 
         for i in range(len(x)):
-            plt.vlines(x[i], ymin=tasks_embeddings[i] - tasks_intervals[i],
-                        ymax=tasks_embeddings[i] + tasks_intervals[i], linewidth=2, colors=[colors[task_id]])
+            plt.vlines(x[i], ymin=tasks_embeddings[i] - radii,
+                        ymax=tasks_embeddings[i] + radii, linewidth=2, colors=[colors[task_id]], alpha=0.7)
 
     # Create a save path
-    save_path = f'{save_folder}/intervals_around_tasks_embeddings.png'
+    if iteration is not None:
+        save_path = f'{save_folder}/intervals_around_tasks_embeddings_task_{current_task}_{iteration}.png'
+    else:
+        save_path = f'{save_folder}/intervals_around_tasks_embeddings_final.png'
 
     # Add labels and a legend
     plt.xlabel("Embedding's coordinate")
@@ -670,6 +678,15 @@ def train_single_task(hypernetwork,
         
         loss.backward()
         optimizer.step()
+
+        if iteration % 500 == 499:
+            # Plot intervals over tasks' embeddings plot
+            interval_plot_save_path = f'{parameters["saving_folder"]}/plots/'
+            plot_intervals_around_embeddings(hypernetwork=hypernetwork,
+                                        parameters=parameters,
+                                        save_folder=interval_plot_save_path,
+                                        iteration=iteration,
+                                        current_task=current_no_of_task)
 
         if parameters['number_of_epochs'] is None:
             condition = (iteration % 10 == 0) or \
@@ -902,45 +919,53 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
         # Get the first task's embedding and calculate the common embedding
         # as average
         with torch.no_grad():
+            
+            # common_embedding = 0.0
+            # for task_id in range(no_of_task+1):                
+            #     curr_embedding = hypernetwork.internal_params[task_id]
+            #     common_embedding += curr_embedding
+
+            # common_embedding = common_embedding / (no_of_task + 1)
+            # common_embedding = hypernetwork.internal_params[0]
+
+            # if no_of_task == 0:
             common_embedding = hypernetwork.internal_params[0]
+            # else:
+            #     common_embedding = torch.stack([
+            #         hypernetwork.internal_params[task_id] for task_id in range(no_of_task + 1)
+            #     ], dim = 0)
 
-            if no_of_task > 0:
-
-                for task_id in range(1, no_of_task+1):
-                    curr_embedding = hypernetwork.internal_params[task_id]
-                    common_embedding += curr_embedding
-
-                common_embedding = common_embedding / (no_of_task+1)
+            #     common_embedding = torch.median(common_embedding, dim=0)[0]
             
 
-        # Evaluate previous tasks for intersection
-        results_from_interval_intersection = evaluate_previous_tasks_for_intersection(
-                                                hypernetwork,
-                                                target_network,
-                                                common_embedding,
-                                                results_from_interval_intersection,
-                                                dataset_list_of_tasks,
-                                                parameters={
-                                                    'device': parameters['device'],
-                                                    'use_batch_norm_memory': use_batch_norm_memory,
-                                                    'number_of_task': no_of_task,
-                                                    'perturbated_epsilon': parameters['perturbated_epsilon']
-                                                }
-                                            )
-        results_from_interval_intersection = results_from_interval_intersection.astype({
-                                                'after_learning_of_task': 'int',
-                                                'tested_task': 'int'
-                                            })
-        results_from_interval_intersection.to_csv(f'{parameters["saving_folder"]}/'
-                                            f'results_intersection.csv',
-                                            sep=';')
+            # Evaluate previous tasks for intersection
+            results_from_interval_intersection = evaluate_previous_tasks_for_intersection(
+                                                    hypernetwork,
+                                                    target_network,
+                                                    common_embedding,
+                                                    results_from_interval_intersection,
+                                                    dataset_list_of_tasks,
+                                                    parameters={
+                                                        'device': parameters['device'],
+                                                        'use_batch_norm_memory': use_batch_norm_memory,
+                                                        'number_of_task': no_of_task,
+                                                        'perturbated_epsilon': parameters['perturbated_epsilon']
+                                                    }
+                                                )
+            results_from_interval_intersection = results_from_interval_intersection.astype({
+                                                    'after_learning_of_task': 'int',
+                                                    'tested_task': 'int'
+                                                })
+            results_from_interval_intersection.to_csv(f'{parameters["saving_folder"]}/'
+                                                f'results_intersection.csv',
+                                                sep=';')
                 
 
-    # Plot intervals over tasks' embeddings plot
-    interval_plot_save_path = f'{parameters["saving_folder"]}/plots/'
-    plot_intervals_around_embeddings(hypernetwork=hypernetwork,
-                                     parameters=parameters,
-                                     save_folder=interval_plot_save_path)
+        # Plot intervals over tasks' embeddings plot
+        interval_plot_save_path = f'{parameters["saving_folder"]}/plots/'
+        plot_intervals_around_embeddings(hypernetwork=hypernetwork,
+                                        parameters=parameters,
+                                        save_folder=interval_plot_save_path)
 
     return hypernetwork, target_network, dataframe
 
@@ -1047,7 +1072,7 @@ if __name__ == "__main__":
     dataset = 'PermutedMNIST'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet'
     part = 0
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") # Generate timestamp
-    create_grid_search = True
+    create_grid_search = False
 
     if create_grid_search:
         summary_results_filename = 'grid_search_results'
