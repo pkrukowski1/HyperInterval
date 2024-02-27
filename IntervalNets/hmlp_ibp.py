@@ -38,13 +38,16 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         
         self._perturbated_eps = kwargs["perturbated_eps"]
         self._device            = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        # self._perturbated_eps_T = nn.ParameterList()
-        self._perturbated_eps_T = F.softmax(torch.ones(cond_in_size), dim=-1).to(self._device)
+        self._perturbated_eps_T = []
         self.scale = 1. / (1 - self._dropout_rate)
+
+        for _ in range(num_cond_embs):
+            self._perturbated_eps_T.append(
+                    F.softmax(torch.randn(cond_in_size), dim=-1).to(self._device)
+                )
 
         self._is_properly_setup()
 
-            
     @property
     def perturbated_eps(self):
         return self._perturbated_eps
@@ -56,14 +59,6 @@ class HMLP_IBP(HMLP, HyperNetInterface):
     @property
     def internal_params(self):
         return self._internal_params
-    
-    @internal_params.setter
-    def internal_params(self, task_id, value):
-
-        assert isinstance(task_id, int), "Task's id should be an integer!"
-        assert isinstance(value, torch.Tensor), "Assigned value should be a PyTorch tensor!"
-
-        self._internal_params[task_id] = value
     
 
     def forward(self, uncond_input=None, cond_input=None, cond_id=None,
@@ -107,14 +102,21 @@ class HMLP_IBP(HMLP, HyperNetInterface):
             h = cond_input
         if uncond_input is not None and cond_input is not None:
             h = torch.cat([uncond_input, cond_input], dim=1)
+        
+        if cond_id is not None:
+            if isinstance(cond_id, list):
+                cond_id = cond_id[0]
 
-        if perturbated_eps is None:
-            eps = self._perturbated_eps * F.softmax(self._perturbated_eps_T, dim=-1)
+            if perturbated_eps is None:
+                eps = self._perturbated_eps * F.softmax(torch.ones_like(h), dim=-1)
+            else:
+                eps = perturbated_eps * F.softmax(torch.ones_like(h), dim=-1)
+            
+            if cond_id is not None:
+                self.perturbated_eps_T[cond_id] = eps
         else:
-            eps = perturbated_eps * F.softmax(self._perturbated_eps_T, dim=-1)
+            eps = torch.zeros_like(h).to(self._device)
                 
-        sigma = self._perturbated_eps / (2 * self._cond_in_size)
-        h = self._internal_params[0] + sigma * torch.tanh(h)
 
         ### Extract layer weights ###
         bn_scales = []
