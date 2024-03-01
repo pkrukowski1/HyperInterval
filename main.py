@@ -723,6 +723,7 @@ def train_single_task(hypernetwork,
 
                 prev_embd = hypernetwork.get_cond_in_emb(i)
                 prev_embd.requires_grad = False
+                print(f"{i}-th embedding: {prev_embd}")
 
                 loss_embeddings += (hypernetwork.get_cond_in_emb(current_no_of_task) - prev_embd).pow(2).mean()
 
