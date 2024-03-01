@@ -122,37 +122,41 @@ def calculate_interval_intersection(hypernetwork, parameters, current_task_id):
     with torch.no_grad():
 
         if current_task_id == 0:
-            return hypernetwork.get_cond_in_emb(0)
+            return hypernetwork.conditional_params[0].detach().clone()
         else:
             eps = parameters["perturbated_epsilon"]
-            prev_detached_embds = [
-                hypernetwork.get_cond_in_emb(i) for i in range(1, current_task_id+1)
-            ]
+            prev_detached_embds = []
 
-            inter_emb = prev_detached_embds[0]
-            radii = eps * F.softmax(torch.ones_like(inter_emb))
+            for i in range(1, current_task_id+1):
+                prev_emb = hypernetwork.conditional_params[i].detach().clone()
+                sigma = eps * F.softmax(hypernetwork.perturbated_eps_T[i], dim=-1)
+
+                prev_emb = sigma * torch.tanh(prev_emb)
+                prev_detached_embds.append(prev_emb)
+
+
+            inter_emb = hypernetwork.conditional_params[0].detach().clone()
+            inter_emb = torch.tanh(inter_emb)
+            radii = eps * F.softmax(hypernetwork.perturbated_eps_T[0], dim=-1)
+            inter_emb = radii * inter_emb
 
             zl_inter_emb = inter_emb - radii
             zu_inter_emb = inter_emb + radii
 
-            for emb in prev_detached_embds:
+            for cond_id, emb in enumerate(prev_detached_embds):
+                radii = eps * F.softmax(hypernetwork.perturbated_eps_T[cond_id+1], dim=-1)
                 zl_curr_emb = emb - radii
                 zu_curr_emb = emb + radii
 
-                if (zu_inter_emb < zl_curr_emb).any() or \
-                    (zl_inter_emb > zu_curr_emb).any():
+                if ((zu_inter_emb >= zl_curr_emb).all() and (zu_inter_emb <= zu_curr_emb).all()) or \
+                    ((zl_inter_emb >= zl_curr_emb).all() and (zl_inter_emb <= zu_curr_emb).all()):
 
-                    print("Intersection is empty")
-                    
-                    zl = torch.where(zu_inter_emb < zl_curr_emb, zu_inter_emb, zl_inter_emb)
-                    zu = torch.where(zl_inter_emb > zu_curr_emb, zl_inter_emb, zu_inter_emb)
-
-                    zl_inter_emb = torch.maximum(zl_inter_emb, zl)
-                    zu_inter_emb = torch.minimum(zu_inter_emb, zu)
-                
-                else:
                     zl_inter_emb = torch.maximum(zl_inter_emb, zl_curr_emb)
                     zu_inter_emb = torch.minimum(zu_inter_emb, zu_curr_emb)
+
+                else:
+
+                    print("Intersection is empty")
 
                 assert (zl_inter_emb <= zu_inter_emb).all(), "Lower bounds should be lower or equal to upper bounds"
 
@@ -266,8 +270,12 @@ def calculate_accuracy(data,
 
         logits = target_network.forward(
             x=test_input,
-            weights=weights
+            upper_weights=weights,
+            middle_weights=weights,
+            lower_weights=weights
         )
+
+        _, logits, _ = parse_predictions(logits)
        
         predictions = logits.max(dim=1)[1]
 
@@ -500,11 +508,12 @@ def plot_intervals_around_embeddings(hypernetwork,
     
     with torch.no_grad():
         embds_detached = [
-            hypernetwork.get_cond_in_emb(i) for i in range(no_tasks)
+            hypernetwork.conditional_params[i].detach().clone() for i in range(no_tasks)
         ]
 
-
-        radii = eps * F.softmax(torch.ones(n_embs), dim=-1)
+        radii = [
+            eps * F.softmax(hypernetwork.perturbated_eps_T[cond_id], dim=-1) for cond_id in range(no_tasks)
+        ]
         
         # Create a plot
         fig    = plt.figure(figsize=(10, 6))
@@ -515,9 +524,10 @@ def plot_intervals_around_embeddings(hypernetwork,
         else:
             colors = [cm(1.*i/(no_tasks + 1)) for i in range(no_tasks + 1)]
 
-        for task_id, tasks_embeddings in enumerate(embds_detached):
+        for task_id, (tasks_embeddings, radii_per_emb) in enumerate(zip(embds_detached, radii)):
             
             tasks_embeddings = tasks_embeddings.cpu().detach().numpy()
+            radii_per_emb = radii_per_emb.cpu().detach().numpy()
 
             # Generate an x axis
             x = [_ for _ in range(parameters["embedding_size"])]
@@ -526,24 +536,20 @@ def plot_intervals_around_embeddings(hypernetwork,
             plt.scatter(x, tasks_embeddings, label=f'Task_{task_id}', marker='o', c=[colors[task_id]], alpha=0.3)
 
             for i in range(len(x)):
-                plt.vlines(x[i], ymin=tasks_embeddings[i] - radii,
-                            ymax=tasks_embeddings[i] + radii, linewidth=2, colors=[colors[task_id]], alpha=0.3)
+                plt.vlines(x[i], ymin=tasks_embeddings[i] - radii_per_emb[i],
+                            ymax=tasks_embeddings[i] + radii_per_emb[i], linewidth=2, colors=[colors[task_id]], alpha=0.3)
                 
         if current_task is not None and \
             current_task > 0 and \
             plot_common_embedding:
 
-            zl_inter_emb, middle_inter_emb, zu_inter_emb = calculate_interval_intersection(hypernetwork=hypernetwork,
-                                                                                        parameters=parameters,
-                                                                                        current_task_id=current_task)
-
+            _, middle_inter_emb, _ = calculate_interval_intersection(hypernetwork=hypernetwork,
+                                                                        parameters=parameters,
+                                                                        current_task_id=current_task)
+            middle_inter_emb = middle_inter_emb.cpu().detach().numpy()
+            
             plt.scatter(x, middle_inter_emb, label=f'Intersection', marker='o', c=[colors[-1]], alpha=1.0)
 
-            radii = (zu_inter_emb - zl_inter_emb) / 2.0
-
-            for i in range(len(x)):
-                plt.vlines(x[i], ymin=middle_inter_emb[i] - radii,
-                            ymax=middle_inter_emb[i] + radii, linewidth=2, colors=[colors[-1]], alpha=1.0)
 
         # Create a save path
         if iteration is not None:
@@ -702,33 +708,41 @@ def train_single_task(hypernetwork,
         # for the last saved tasks will be applied so there is no need to
         # give 'current_no_of_task' as a value for the 'condition' argument.
 
-        lower_pred = target_network.forward(x=tensor_input,
-                                            weights=lower_weights)
+        # lower_pred = target_network.forward(x=tensor_input,
+        #                                     weights=lower_weights)
         
-        middle_pred = target_network.forward(x=tensor_input,
-                                            weights=target_weights)
+        # middle_pred = target_network.forward(x=tensor_input,
+        #                                     weights=target_weights)
         
-        upper_pred = target_network.forward(x=tensor_input,
-                                            weights=upper_weights)
+        # upper_pred = target_network.forward(x=tensor_input,
+        #                                     weights=upper_weights)
 
 
-        lower_pred = torch.minimum(lower_pred, middle_pred)
-        upper_pred = torch.maximum(upper_pred, middle_pred)
+        # lower_pred, middle_pred = torch.minimum(lower_pred, middle_pred), torch.maximum(lower_pred, middle_pred)
+        # middle_pred, upper_pred = torch.minimum(upper_pred, middle_pred), torch.maximum(upper_pred, middle_pred)
+
+        predictions = target_network.forward(x=tensor_input,
+                                             upper_weights=upper_weights,
+                                             middle_weights=target_weights,
+                                             lower_weights=lower_weights)
+        
+        lower_pred, middle_pred, upper_pred = parse_predictions(predictions)
 
         # Loss which take care about non-empty intervals' intersection
-        loss_embeddings = 0.0
-        if current_no_of_task > 0:
+        # loss_embeddings = 0.0
+        # if current_no_of_task > 0:
             
-            for i in range(current_no_of_task):
+        #     for i in range(current_no_of_task):
 
-                prev_embd = hypernetwork.get_cond_in_emb(i)
-                prev_embd.requires_grad = False
-                print(f"{i}-th embedding: {prev_embd}")
+        #         prev_embd = hypernetwork.conditional_params[i].detach().clone()
 
-                loss_embeddings += (hypernetwork.get_cond_in_emb(current_no_of_task) - prev_embd).pow(2).mean()
+        #         curr_embd = hypernetwork.conditional_params[current_no_of_task]
+
+        #         loss_embeddings += (curr_embd - prev_embd).pow(2).mean() + \
+        #                             (torch.var(curr_embd) - torch.var(prev_embd))
 
             
-            loss_embeddings = loss_embeddings / (current_no_of_task+1)           
+        #     loss_embeddings = loss_embeddings / (current_no_of_task+1)           
 
         
         # We need to check wheter the distance between the lower weights
@@ -759,9 +773,8 @@ def train_single_task(hypernetwork,
 
         # Calculate total loss
         loss = loss_current_task + \
-            parameters['beta'] * loss_regularization / max(1, current_no_of_task) - \
-            parameters['gamma'] * loss_weights + \
-            parameters['rho'] * loss_embeddings
+            parameters['beta'] * loss_regularization / max(1, current_no_of_task) #+ \
+            # parameters['rho'] * loss_embeddings
         
         # Save total loss to file
         append_row_to_file(
@@ -772,8 +785,8 @@ def train_single_task(hypernetwork,
         loss.backward()
         optimizer.step()
 
-        # if iteration % 500 == 499:
-        if iteration % 10 == 9:
+        if iteration % 500 == 499:
+        # if iteration % 10 == 9:
             # Plot intervals over tasks' embeddings plot
             interval_plot_save_path = f'{parameters["saving_folder"]}/plots/'
             plot_common_embedding = iteration >= iterations_to_adjust
@@ -877,7 +890,7 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
     # Create a target network which will be multilayer perceptron
     # or ResNet/ZenkeNet with internal weights
     if parameters['target_network'] == 'MLP':
-        target_network = MLP(n_in=parameters['input_shape'],
+        target_network = IntervalMLP(n_in=parameters['input_shape'],
                              n_out=output_shape,
                              hidden_layers=parameters['target_hidden_layers'],
                              use_bias=parameters['use_bias'],
@@ -961,7 +974,7 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
 
         if parameters['custom_init'] and no_of_task > 0:
             
-           prev_emb = hypernetwork.get_cond_in_emb(no_of_task-1).detach().clone()
+           prev_emb = hypernetwork.conditional_params[no_of_task-1].detach().clone()
            prev_emb.requires_grad = False
 
            hypernetwork.internal_params[no_of_task] = nn.Parameter(
@@ -1020,14 +1033,24 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
         # as average
         with torch.no_grad():
             
-            if no_of_task == 0:
-                common_embedding = calculate_interval_intersection(hypernetwork=hypernetwork,
-                                                                    parameters=parameters,
-                                                                    current_task_id=no_of_task)
-            else:
-                _, common_embedding, _ = calculate_interval_intersection(hypernetwork=hypernetwork,
-                                                                    parameters=parameters,
-                                                                    current_task_id=no_of_task)
+            # if no_of_task == 0:
+            #     common_embedding = calculate_interval_intersection(hypernetwork=hypernetwork,
+            #                                                         parameters=parameters,
+            #                                                         current_task_id=no_of_task)
+            # else:
+            #     _, common_embedding, _ = calculate_interval_intersection(hypernetwork=hypernetwork,
+            #                                                                 parameters=parameters,
+            #                                                                 current_task_id=no_of_task)
+
+            common_embedding = hypernetwork.conditional_params[0]
+
+            if no_of_task > 0:
+
+                for task_id in range(1, no_of_task+1):
+                    curr_emb = hypernetwork.conditional_params[task_id]
+                    common_embedding = common_embedding + curr_emb
+
+                common_embedding = common_embedding / (no_of_task + 1)
 
 
             # Evaluate previous tasks for intersection
@@ -1057,7 +1080,9 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
         interval_plot_save_path = f'{parameters["saving_folder"]}/plots/'
         plot_intervals_around_embeddings(hypernetwork=hypernetwork,
                                         parameters=parameters,
-                                        save_folder=interval_plot_save_path)
+                                        save_folder=interval_plot_save_path,
+                                        current_task=no_of_task,
+                                        plot_common_embedding=True)
 
     return hypernetwork, target_network, dataframe
 
@@ -1164,7 +1189,7 @@ if __name__ == "__main__":
     dataset = 'PermutedMNIST'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet'
     part = 0
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") # Generate timestamp
-    create_grid_search = False
+    create_grid_search = True
 
     if create_grid_search:
         summary_results_filename = 'grid_search_results'

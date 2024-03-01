@@ -7,8 +7,8 @@ from hypnettorch.hnets import HMLP
 from hypnettorch.hnets.hnet_interface import HyperNetInterface
 
 import torch
-import torch.nn.functional as F
 import torch.nn as nn
+import torch.nn.functional as F
 
 class HMLP_IBP(HMLP, HyperNetInterface):
 
@@ -36,18 +36,19 @@ class HMLP_IBP(HMLP, HyperNetInterface):
                  use_batch_norm=use_batch_norm)
 
         
-        self._perturbated_eps = kwargs["perturbated_eps"]
+        self._perturbated_eps   = kwargs["perturbated_eps"]
         self._device            = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._perturbated_eps_T = []
         self.scale = 1. / (1 - self._dropout_rate)
 
         for _ in range(num_cond_embs):
             self._perturbated_eps_T.append(
-                    F.softmax(torch.randn(cond_in_size), dim=-1).to(self._device)
+                    F.softmax(torch.randn(cond_in_size), dim=-1)
                 )
 
         self._is_properly_setup()
 
+            
     @property
     def perturbated_eps(self):
         return self._perturbated_eps
@@ -56,9 +57,13 @@ class HMLP_IBP(HMLP, HyperNetInterface):
     def perturbated_eps_T(self):
         return self._perturbated_eps_T
     
-    @property
-    def internal_params(self):
-        return self._internal_params
+    @perturbated_eps_T.setter
+    def perturbated_eps_T(self, task_id, value):
+
+        assert isinstance(task_id, int), "Task's id should be an integer!"
+        assert isinstance(value, torch.Tensor), "Assigned value should be a PyTorch tensor!"
+
+        self._perturbated_eps_T[task_id] = value
     
 
     def forward(self, uncond_input=None, cond_input=None, cond_id=None,
@@ -102,21 +107,22 @@ class HMLP_IBP(HMLP, HyperNetInterface):
             h = cond_input
         if uncond_input is not None and cond_input is not None:
             h = torch.cat([uncond_input, cond_input], dim=1)
-        
+
         if cond_id is not None:
             if isinstance(cond_id, list):
                 cond_id = cond_id[0]
 
             if perturbated_eps is None:
-                eps = self._perturbated_eps * F.softmax(torch.ones_like(h), dim=-1)
+                eps = self._perturbated_eps * F.softmax(self._perturbated_eps_T[cond_id], dim=-1)
             else:
-                eps = perturbated_eps * F.softmax(torch.ones_like(h), dim=-1)
+                eps = perturbated_eps * F.softmax(self._perturbated_eps_T[cond_id], dim=-1)
             
-            if cond_id is not None:
-                self.perturbated_eps_T[cond_id] = eps
+            eps = eps.to(self._device)
+            
+            self.perturbated_eps_T[cond_id] = eps
+        
         else:
-            eps = torch.zeros_like(h).to(self._device)
-                
+            eps = self._perturbated_eps * F.softmax(torch.ones_like(h), dim=-1).to(self._device)
 
         ### Extract layer weights ###
         bn_scales = []
@@ -146,6 +152,9 @@ class HMLP_IBP(HMLP, HyperNetInterface):
             assert len(bn_scales) == len(fc_weights) - 1
 
         ### Process inputs through the network ###
+        sigma = eps/2
+        h = sigma * torch.tanh(h)
+
         for i in range(len(fc_weights)):
             last_layer = i == (len(fc_weights) - 1)
 
