@@ -69,7 +69,7 @@ class HMLP_IBP(HMLP, HyperNetInterface):
     def forward(self, uncond_input=None, cond_input=None, cond_id=None,
                 weights=None, distilled_params=None, condition=None,
                 ret_format='squeezed', return_extended_output = False,
-                perturbated_eps = None):
+                perturbated_eps = None, use_common_embedding=False):
         """Compute the weights of a target network.
 
         Args:
@@ -152,8 +152,9 @@ class HMLP_IBP(HMLP, HyperNetInterface):
             assert len(bn_scales) == len(fc_weights) - 1
 
         ### Process inputs through the network ###
-        sigma = eps/2
-        h = sigma * torch.tanh(h)
+        if not use_common_embedding:
+            sigma = eps/2
+            h = sigma * torch.tanh(h)
 
         for i in range(len(fc_weights)):
             last_layer = i == (len(fc_weights) - 1)

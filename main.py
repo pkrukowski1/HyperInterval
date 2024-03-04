@@ -121,42 +121,56 @@ def calculate_interval_intersection(hypernetwork, parameters, current_task_id):
 
     with torch.no_grad():
 
+        eps = parameters["perturbated_epsilon"]
+
         if current_task_id == 0:
-            return hypernetwork.conditional_params[0].detach().clone()
+            first_emb = hypernetwork.conditional_params[0].clone()
+            sigma = eps/2 * F.softmax(hypernetwork.perturbated_eps_T[0], dim=-1)
+            first_emb = sigma * torch.tanh(first_emb)
+
+            return first_emb
         else:
-            eps = parameters["perturbated_epsilon"]
             prev_detached_embds = []
+            prev_radii = []
 
             for i in range(1, current_task_id+1):
-                prev_emb = hypernetwork.conditional_params[i].detach().clone()
-                sigma = eps * F.softmax(hypernetwork.perturbated_eps_T[i], dim=-1)
-
+                prev_emb = hypernetwork.conditional_params[i].clone()
+                radii = eps * F.softmax(hypernetwork.perturbated_eps_T[i], dim=-1)
+                sigma = radii/2
                 prev_emb = sigma * torch.tanh(prev_emb)
+
                 prev_detached_embds.append(prev_emb)
+                prev_radii.append(radii)
 
 
-            inter_emb = hypernetwork.conditional_params[0].detach().clone()
-            inter_emb = torch.tanh(inter_emb)
+            inter_emb = hypernetwork.conditional_params[0].clone()
             radii = eps * F.softmax(hypernetwork.perturbated_eps_T[0], dim=-1)
-            inter_emb = radii * inter_emb
+            sigma = radii/2
+            inter_emb = sigma * torch.tanh(inter_emb)
 
             zl_inter_emb = inter_emb - radii
             zu_inter_emb = inter_emb + radii
 
-            for cond_id, emb in enumerate(prev_detached_embds):
-                radii = eps * F.softmax(hypernetwork.perturbated_eps_T[cond_id+1], dim=-1)
+            for (emb, radii) in zip(prev_detached_embds, prev_radii):
                 zl_curr_emb = emb - radii
                 zu_curr_emb = emb + radii
 
-                if ((zu_inter_emb >= zl_curr_emb).all() and (zu_inter_emb <= zu_curr_emb).all()) or \
-                    ((zl_inter_emb >= zl_curr_emb).all() and (zl_inter_emb <= zu_curr_emb).all()):
+                # We need to identify which components of the common embedding are higher/lower
+                # than components of the current embedding
+                mask_1 = zu_inter_emb >= zl_curr_emb
+                mask_2 = zu_inter_emb <= zu_curr_emb
+                mask_1_2 = mask_1 * mask_2
 
-                    zl_inter_emb = torch.maximum(zl_inter_emb, zl_curr_emb)
-                    zu_inter_emb = torch.minimum(zu_inter_emb, zu_curr_emb)
+                mask_3 = zl_inter_emb >= zl_curr_emb
+                mask_4 = zl_inter_emb <= zu_curr_emb
+                mask_3_4 = mask_3 * mask_4
 
-                else:
+                zl_inter_emb[mask_1_2] = zl_curr_emb[mask_1_2]
+                zu_inter_emb[mask_1_2] = zu_inter_emb[mask_1_2]
 
-                    print("Intersection is empty")
+                zl_inter_emb[mask_3_4] = zl_inter_emb[mask_3_4]
+                zu_inter_emb[mask_3_4] = zu_curr_emb[mask_3_4]
+               
 
                 assert (zl_inter_emb <= zu_inter_emb).all(), "Lower bounds should be lower or equal to upper bounds"
 
@@ -405,7 +419,8 @@ def evaluate_previous_tasks_for_intersection(hypernetwork,
     hypernetwork.eval()
     target_network.eval()
 
-    inter_target_weights = hypernetwork.forward(cond_input = common_embedding.view(1, -1))
+    inter_target_weights = hypernetwork.forward(cond_input = common_embedding.view(1, -1),
+                                                use_common_embedding=True)
 
     for task in range(parameters['number_of_task'] + 1):
         # Target entropy calculation should be included here: hypernetwork has to be inferred
@@ -505,10 +520,12 @@ def plot_intervals_around_embeddings(hypernetwork,
     no_tasks = current_task + 1 if current_task is not None else parameters["number_of_tasks"]
     n_embs   = parameters["embedding_size"]
     eps = parameters["perturbated_epsilon"]
-    
+    sigma = eps/2
+
     with torch.no_grad():
         embds_detached = [
-            hypernetwork.conditional_params[i].detach().clone() for i in range(no_tasks)
+            sigma * F.softmax(hypernetwork.perturbated_eps_T[i], dim=-1) * \
+                torch.tanh(hypernetwork.conditional_params[i].detach().clone()) for i in range(no_tasks)
         ]
 
         radii = [
@@ -773,7 +790,8 @@ def train_single_task(hypernetwork,
 
         # Calculate total loss
         loss = loss_current_task + \
-            parameters['beta'] * loss_regularization / max(1, current_no_of_task) #+ \
+            parameters['beta'] * loss_regularization / max(1, current_no_of_task) - \
+            parameters['gamma'] * loss_weights
             # parameters['rho'] * loss_embeddings
         
         # Save total loss to file
@@ -1033,24 +1051,24 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
         # as average
         with torch.no_grad():
             
-            # if no_of_task == 0:
-            #     common_embedding = calculate_interval_intersection(hypernetwork=hypernetwork,
-            #                                                         parameters=parameters,
-            #                                                         current_task_id=no_of_task)
-            # else:
-            #     _, common_embedding, _ = calculate_interval_intersection(hypernetwork=hypernetwork,
-            #                                                                 parameters=parameters,
-            #                                                                 current_task_id=no_of_task)
+            if no_of_task == 0:
+                common_embedding = calculate_interval_intersection(hypernetwork=hypernetwork,
+                                                                    parameters=parameters,
+                                                                    current_task_id=no_of_task)
+            else:
+                _, common_embedding, _ = calculate_interval_intersection(hypernetwork=hypernetwork,
+                                                                            parameters=parameters,
+                                                                            current_task_id=no_of_task)
 
-            common_embedding = hypernetwork.conditional_params[0]
+            # common_embedding = hypernetwork.conditional_params[0]
 
-            if no_of_task > 0:
+            # if no_of_task > 0:
 
-                for task_id in range(1, no_of_task+1):
-                    curr_emb = hypernetwork.conditional_params[task_id]
-                    common_embedding = common_embedding + curr_emb
+            #     for task_id in range(1, no_of_task+1):
+            #         curr_emb = hypernetwork.conditional_params[task_id]
+            #         common_embedding = common_embedding + curr_emb
 
-                common_embedding = common_embedding / (no_of_task + 1)
+            #     common_embedding = common_embedding / (no_of_task + 1)
 
 
             # Evaluate previous tasks for intersection
@@ -1222,8 +1240,8 @@ if __name__ == "__main__":
                 hyperparameters["gammas"],
                 hyperparameters["perturbated_epsilon"],
                 hyperparameters["dropout_rate"],
-                hyperparameters['custom_init'],
-                hyperparameters['rhos'])
+                hyperparameters['custom_init'])
+                # hyperparameters['rhos'])
     ):
         embedding_size = elements[0]
         learning_rate = elements[1]
@@ -1234,7 +1252,7 @@ if __name__ == "__main__":
         perturbated_eps = elements[7]
         dropout_rate = elements[8]
         custom_init = elements[9]
-        rho = elements[10]
+        # rho = elements[10]
 
         # Of course, seed is not optimized but it is easier to prepare experiments
         # for multiple seeds in such a way
@@ -1278,7 +1296,7 @@ if __name__ == "__main__":
             'kappa': hyperparameters["kappa"],
             'dropout_rate': dropout_rate,
             'custom_init': custom_init,
-            'rho': rho
+            # 'rho': rho
         }
 
         os.makedirs(f"{parameters['saving_folder']}", exist_ok=True)

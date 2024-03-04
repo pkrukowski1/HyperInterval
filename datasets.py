@@ -199,10 +199,10 @@ def set_hyperparameters(dataset,
                 'learning_rates': [0.001, 0.01],
                 'batch_sizes': [128],
                 'betas': [0.001, 0.005, 0.0005],
-                'rhos': [0.1, 0.01, 0.001],
+                # 'rhos': [0.1, 0.01, 0.001],
                 'hypernetworks_hidden_layers': [[100, 100], [25, 25]],
                 'perturbated_epsilon': [10.0, 5.0, 1.0, 0.5],
-                'gammas': [0.0, 0.01, 0.001, 0.0005],
+                'gammas': [0.01, 0.001, 0.0005],
                 'best_model_selection_method': 'val_loss',
                 'dropout_rate': [-1, 0.25, 0.5],
                 # not for optimization
@@ -213,7 +213,7 @@ def set_hyperparameters(dataset,
             elif part == 1:
                 hyperparams['best_model_selection_method'] = 'last_model'
             hyperparams['saving_folder'] = (
-                '/shared/results/pkrukowski/HyperIntervalResults/non_forced_intervals/grid_search_relu/'
+                '/shared/results/pkrukowski/HyperIntervalResults/forced_intervals/grid_search_relu/'
                 f'permuted_mnist_final_grid_experiments/{hyperparams["best_model_selection_method"]}/'
             )
 
@@ -225,20 +225,20 @@ def set_hyperparameters(dataset,
                 'embedding_sizes': [24],
                 'learning_rates': [0.001],
                 'batch_sizes': [128],
-                'rhos': [0.1],
+                # 'rhos': [0.1],
                 'betas': [0.005],
                 'gammas': [0.0],
                 'perturbated_epsilon': [10.0],
                 'hypernetworks_hidden_layers': [[100, 100]],
                 'dropout_rate': [-1],
-                'best_model_selection_method': 'val_loss',
+                'best_model_selection_method': 'last_model',
                 'saving_folder': './Results/'
                 f'permuted_mnist_final_grid_experiments/last_model/'
             }
 
         # Both in the grid search and individual runs
         hyperparams['lr_scheduler'] = False
-        hyperparams['number_of_iterations'] = 20
+        hyperparams['number_of_iterations'] = 5000
         hyperparams['number_of_epochs'] = None
         hyperparams['no_of_validation_samples'] = 500
         hyperparams['target_hidden_layers'] = [1000, 1000]
@@ -253,7 +253,7 @@ def set_hyperparameters(dataset,
         # Directly related to the MNIST dataset
         hyperparams['padding'] = 2
         hyperparams['shape'] = (28 + 2 * hyperparams['padding'])**2
-        hyperparams['number_of_tasks'] = 3
+        hyperparams['number_of_tasks'] = 10
         hyperparams['augmentation'] = False
 
 
@@ -265,7 +265,7 @@ def set_hyperparameters(dataset,
                 'embedding_sizes': [48],
                 'betas': [0.01, 0.1, 1.0],
                 'gammas': [0.01, 0.1, 1.0],
-                'rhos': [0.1, 0.01, 0.001],
+                # 'rhos': [0.1, 0.01, 0.001],
                 'learning_rates': [0.001],
                 'batch_sizes': [32],
                 'hypernetworks_hidden_layers': [[100]],
@@ -307,7 +307,7 @@ def set_hyperparameters(dataset,
             else:
                 raise ValueError(f'Wrong argument: {part}!')
             hyperparams['saving_folder'] = (
-                '/shared/results/pkrukowski/HyperIntervalResults/non_forced_intervals/grid_search_relu/'
+                '/shared/results/pkrukowski/HyperIntervalResults/forced_intervals/grid_search_relu/'
                 f'CIFAR-100_single_seed/'
                 f'part_{part}_ZenkeNet_stronger_reg/'
             )
@@ -320,7 +320,7 @@ def set_hyperparameters(dataset,
                 'embedding_sizes': [48],
                 'betas': [0.01],
                 'gammas': [0.001],
-                'rhos': [0.1],
+                # 'rhos': [0.1],
                 'batch_sizes': [32],
                 'learning_rates': [0.001],
                 'perturbated_epsilon': [1.0],
@@ -374,7 +374,7 @@ def set_hyperparameters(dataset,
                 'learning_rates': [0.001],
                 'batch_sizes': [64, 128],
                 'betas': [0.1, 0.01, 0.001],
-                'rhos': [0.1, 0.01, 0.001],
+                # 'rhos': [0.1, 0.01, 0.001],
                 'hypernetworks_hidden_layers': [[25, 25], [50, 50]],
                 'dropout_rate': [-1, 0.25, 0.5],
                 'perturbated_epsilon': [10, 5, 1, 0.5],
@@ -396,7 +396,7 @@ def set_hyperparameters(dataset,
                 raise ValueError('Not implemented subset of hyperparameters!')
 
             hyperparams['saving_folder'] = (
-                '/shared/results/pkrukowski/HyperIntervalResults/non_forced_intervals/grid_search_relu/'
+                '/shared/results/pkrukowski/HyperIntervalResults/forced_intervals/grid_search_relu/'
                 f'split_mnist/augmented/ICLR_models/part_{part}/'
             )
 
@@ -409,7 +409,7 @@ def set_hyperparameters(dataset,
                 'learning_rates': [0.001],
                 'batch_sizes': [64],
                 'betas': [0.001],
-                'rhos': [0.1],
+                # 'rhos': [0.1],
                 'perturbated_epsilon': [10.0],
                 'dropout_rate': [-1],
                 'gammas': [0.1],
@@ -447,7 +447,7 @@ def set_hyperparameters(dataset,
                 "batch_sizes": [32],
                 'dropout_rate': [-1, 0.25, 0.5],
                 'betas': [0.01, 0.1, 1.0],
-                'rhos': [0.1, 0.01, 0.001],
+                # 'rhos': [0.1, 0.01, 0.001],
                 'gammas': [0.0, 0.01, 0.1, 1.0],
                 'hypernetworks_hidden_layers': [[100], [10, 10]],
                 'resnet_number_of_layer_groups': 3,
@@ -461,7 +461,7 @@ def set_hyperparameters(dataset,
             }
 
             hyperparams['saving_folder'] = (
-                '/shared/results/pkrukowski/HyperIntervalResults/non_forced_intervals/grid_search_relu/'
+                '/shared/results/pkrukowski/HyperIntervalResults/forced_intervals/grid_search_relu/'
                 f'TinyImageNet/'
                 f'part_0_ZenkeNet/'
             )
@@ -475,7 +475,7 @@ def set_hyperparameters(dataset,
                 "batch_sizes": [32],
                 'betas': [0.01],
                 'gammas': [0.01],
-                'rhos': [0.1],
+                # 'rhos': [0.1],
                 'hypernetworks_hidden_layers': [[100]],
                 'resnet_number_of_layer_groups': 3,
                 'resnet_widening_factor': 2,
