@@ -550,22 +550,32 @@ def plot_intervals_around_embeddings(hypernetwork,
             x = [_ for _ in range(parameters["embedding_size"])]
 
             # Create a scatter plot
-            plt.scatter(x, tasks_embeddings, label=f'Task_{task_id}', marker='o', c=[colors[task_id]], alpha=0.3)
+            plt.scatter(x, tasks_embeddings, label=f'Task_{task_id}', marker='o', c=[colors[task_id]], alpha=0.1)
 
             for i in range(len(x)):
                 plt.vlines(x[i], ymin=tasks_embeddings[i] - radii_per_emb[i],
-                            ymax=tasks_embeddings[i] + radii_per_emb[i], linewidth=2, colors=[colors[task_id]], alpha=0.3)
+                            ymax=tasks_embeddings[i] + radii_per_emb[i], linewidth=2, colors=[colors[task_id]], alpha=0.1)
                 
         if current_task is not None and \
             current_task > 0 and \
             plot_common_embedding:
 
-            _, middle_inter_emb, _ = calculate_interval_intersection(hypernetwork=hypernetwork,
-                                                                        parameters=parameters,
-                                                                        current_task_id=current_task)
+            zl_inter_emb, middle_inter_emb, zu_inter_emb = calculate_interval_intersection(hypernetwork=hypernetwork,
+                                                                                            parameters=parameters,
+                                                                                            current_task_id=current_task)
+            
+            upper_radii = zu_inter_emb - middle_inter_emb
+            lower_radii = middle_inter_emb - zl_inter_emb
+
             middle_inter_emb = middle_inter_emb.cpu().detach().numpy()
+            upper_radii = upper_radii.cpu().detach().numpy()
+            lower_radii = lower_radii.cpu().detach().numpy()
             
             plt.scatter(x, middle_inter_emb, label=f'Intersection', marker='o', c=[colors[-1]], alpha=1.0)
+
+            for i in range(len(x)):
+                plt.vlines(x[i], ymin=middle_inter_emb[i] - lower_radii[i],
+                            ymax=middle_inter_emb[i] + upper_radii[i], linewidth=2, colors=[colors[-1]], alpha=1.0)
 
 
         # Create a save path
@@ -798,8 +808,8 @@ def train_single_task(hypernetwork,
         append_row_to_file(
         filename=f'{parameters["saving_folder"]}total_loss.txt',
         elements=f'{current_no_of_task};{iteration};{loss}'
-        )
-        
+        )  
+
         loss.backward()
         optimizer.step()
 
@@ -1022,6 +1032,9 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
                 f'target_network_after_{no_of_task}_task',
                 target_network.weights
             )
+        
+        # Freeze the already learned embedding
+        hypernetwork.detach_tensor(idx = no_of_task)
 
         # Evaluate previous tasks
         dataframe = evaluate_previous_tasks(

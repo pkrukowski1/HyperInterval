@@ -47,6 +47,9 @@ class HMLP_IBP(HMLP, HyperNetInterface):
                 )
 
         self._is_properly_setup()
+    
+    def detach_tensor(self, idx):
+        self.conditional_params[idx].requires_grad_(False)
 
             
     @property
@@ -155,6 +158,8 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         if not use_common_embedding:
             sigma = eps/2
             h = sigma * torch.tanh(h)
+        else:
+            eps = torch.zeros_like(h).to(self._device)
 
         for i in range(len(fc_weights)):
             last_layer = i == (len(fc_weights) - 1)
