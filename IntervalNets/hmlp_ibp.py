@@ -72,7 +72,8 @@ class HMLP_IBP(HMLP, HyperNetInterface):
     def forward(self, uncond_input=None, cond_input=None, cond_id=None,
                 weights=None, distilled_params=None, condition=None,
                 ret_format='squeezed', return_extended_output = False,
-                perturbated_eps = None, use_common_embedding=False):
+                perturbated_eps = None, use_common_embedding=False,
+                common_radii=None):
         """Compute the weights of a target network.
 
         Args:
@@ -82,14 +83,20 @@ class HMLP_IBP(HMLP, HyperNetInterface):
                 ``stats_id`` to the method
                 :meth:`utils.batchnorm_layer.BatchNormLayer.forward` if batch
                 normalization is used.
-            return_extended_output (bool): if true, then the function returns target weights,
+            return_extended_output: (bool) if true, then the function returns target weights,
                                             lower target weight, upper target weights and predicted radii 
-                                            of intervals 
+                                            of intervals
+            perturbated_eps: (float)
+            use_common_embedding: (bool) a flag to indicate if a common_embedding should be applied
+            common_radii: (torch.Tensor) radii of common embedding
 
         Returns:
             (list or torch.Tensor): See docstring of method
             :meth:`hnets.hnet_interface.HyperNetInterface.forward`.
         """
+
+        assert (use_common_embedding and common_radii is not None) or \
+                (not use_common_embedding and common_radii is None)
 
         uncond_input, cond_input, uncond_weights, _ = \
             self._preprocess_forward_args(uncond_input=uncond_input,
@@ -159,7 +166,7 @@ class HMLP_IBP(HMLP, HyperNetInterface):
             sigma = eps/2
             h = sigma * torch.tanh(h)
         else:
-            eps = torch.zeros_like(h).to(self._device)
+            eps = common_radii.to(self._device)
 
         for i in range(len(fc_weights)):
             last_layer = i == (len(fc_weights) - 1)

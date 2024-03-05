@@ -31,17 +31,6 @@ from datasets import (
     prepare_tinyimagenet_tasks,
 )
 
-def calculate_frechet_distance(x, y):
-    """
-    Calculate Frechet distance between two tensors
-    """
-    mu_x = x.mean()
-    mu_y = y.mean()
-
-    var_x = torch.var(x)
-    var_y = torch.var(y)
-
-    return (mu_x - mu_y).pow(2) + (var_x - var_y).pow(2)
 
 def set_seed(value):
     '''
@@ -376,7 +365,8 @@ def evaluate_previous_tasks(hypernetwork,
 
 def evaluate_previous_tasks_for_intersection(hypernetwork,
                             target_network,
-                            common_embedding,
+                            common_emb,
+                            common_radii,
                             dataframe_results,
                             list_of_permutations,
                             parameters):
@@ -393,7 +383,9 @@ def evaluate_previous_tasks_for_intersection(hypernetwork,
       *target_network* (hypnettorch.mnets module, e.g. mlp.MLP)
                        a target network that finally will perform
                        classification
-      *no_of_task* (torch.Tensor): an input to the hypernetwork
+      *common_emb* (torch.Tensor) an embedding which is produced as a middle
+                    of intervals' intersection for already learned tasks
+      *common_radii* (torch.Tensor) radii around the common_embedding
       *dataframe_results* (Pandas Dataframe) stores results; contains
                           following columns: 'after_learning_of_task',
                           'tested_task' and 'accuracy'
@@ -419,8 +411,9 @@ def evaluate_previous_tasks_for_intersection(hypernetwork,
     hypernetwork.eval()
     target_network.eval()
 
-    inter_target_weights = hypernetwork.forward(cond_input = common_embedding.view(1, -1),
-                                                use_common_embedding=True)
+    inter_target_weights = hypernetwork.forward(cond_input = common_emb.view(1, -1),
+                                                use_common_embedding=True,
+                                                common_radii=common_radii)
 
     for task in range(parameters['number_of_task'] + 1):
         # Target entropy calculation should be included here: hypernetwork has to be inferred
@@ -1065,13 +1058,18 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
         with torch.no_grad():
             
             if no_of_task == 0:
-                common_embedding = calculate_interval_intersection(hypernetwork=hypernetwork,
-                                                                    parameters=parameters,
-                                                                    current_task_id=no_of_task)
+                common_emb = calculate_interval_intersection(hypernetwork=hypernetwork,
+                                                                parameters=parameters,
+                                                                current_task_id=no_of_task)
+                common_radii = parameters['perturbated_epsilon'] * F.softmax(hypernetwork.perturbated_eps_T[0], dim=-1)
             else:
-                _, common_embedding, _ = calculate_interval_intersection(hypernetwork=hypernetwork,
-                                                                            parameters=parameters,
-                                                                            current_task_id=no_of_task)
+                zl_common_emb, common_emb, zu_common_emb = calculate_interval_intersection(hypernetwork=hypernetwork,
+                                                                                            parameters=parameters,
+                                                                                            current_task_id=no_of_task)
+                upper_radii = zu_common_emb - common_emb
+                lower_radii = common_emb - zl_common_emb
+                
+                common_radii = torch.minimum(upper_radii, lower_radii)
 
             # common_embedding = hypernetwork.conditional_params[0]
 
@@ -1088,7 +1086,8 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
             results_from_interval_intersection = evaluate_previous_tasks_for_intersection(
                                                     hypernetwork,
                                                     target_network,
-                                                    common_embedding,
+                                                    common_emb,
+                                                    common_radii,
                                                     results_from_interval_intersection,
                                                     dataset_list_of_tasks,
                                                     parameters={
