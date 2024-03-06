@@ -9,7 +9,7 @@ class IBP_Loss(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.bce_loss_func     = nn.CrossEntropyLoss()
+        self.bce_loss_func = nn.CrossEntropyLoss()
         self._worst_case_error = 0.0
 
     @property
@@ -38,7 +38,10 @@ class IBP_Loss(nn.Module):
         """
 
         # Standard cross-entropy loss component
-        loss_fit = self.bce_loss_func(y_pred, y)
+        loss_fit = self.bce_loss_func(y_pred, y) + \
+                   self.bce_loss_func(z_l, y) + \
+                   self.bce_loss_func(z_u, y)
+        
 
         # Worst-case loss component
         tmp = nn.functional.one_hot(y, y_pred.size(-1))

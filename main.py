@@ -769,6 +769,7 @@ def train_single_task(hypernetwork,
         # and the upper weights isn't collapsed into "one point" (short interval)
         loss_weights = 0.0
         for W_u, W_l in zip(upper_weights, lower_weights):
+
             loss_weights += (W_u - W_l).pow(2).mean()
 
         loss_current_task = criterion(

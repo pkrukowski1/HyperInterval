@@ -166,7 +166,10 @@ class HMLP_IBP(HMLP, HyperNetInterface):
             sigma = eps/2
             h = sigma * torch.tanh(h)
         else:
-            eps = common_radii.to(self._device)
+            # TODO: Is it better to use radii of common radii or just
+            # a tensor with zeros?
+            # eps = common_radii.to(self._device)
+            eps = torch.zeros_like(h)
 
         for i in range(len(fc_weights)):
             last_layer = i == (len(fc_weights) - 1)
