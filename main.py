@@ -2,7 +2,7 @@ import os
 import random
 import torch
 import torch.nn as nn
-from typing import cast
+from typing import cast, Tuple
 from torch import Tensor
 import torch.nn.functional as F
 import numpy as np
@@ -11,13 +11,13 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import torch.optim as optim
 from IntervalNets.interval_mlp import IntervalMLP
-from hypnettorch.hnets.hnet_helpers import init_conditional_embeddings
 from hypnettorch.mnets.resnet import ResNet
-from hypnettorch.hnets import HMLP
+from copy import deepcopy
+# from hypnettorch.hnets import HMLP
 from IntervalNets.IntervalZenkeNet64 import ZenkeNet
 from IntervalNets.interval_ResNet import IntervalResNet
-import hypnettorch.utils.hnet_regularizer as hreg
-from hypnettorch.mnets.mlp import MLP
+import hnet_regularizer as hreg
+# from hypnettorch.mnets.mlp import MLP
 from datetime import datetime
 from itertools import product
 from copy import deepcopy
@@ -44,7 +44,7 @@ def set_seed(value):
     torch.backends.cudnn.benchmark = False
 
 
-def append_row_to_file(filename, elements):
+def append_row_to_file(filename, elements, header=''):
     '''
     Append a single row to the given file.
 
@@ -57,7 +57,7 @@ def append_row_to_file(filename, elements):
         filename += '.csv'
     filename = filename.replace('.pt', '')
     with open(filename, "a+") as stream:
-        np.savetxt(stream, np.array(elements)[np.newaxis], delimiter=';', fmt='%s')
+        np.savetxt(stream, np.array(elements)[np.newaxis], delimiter=';', fmt='%s', header=header)
 
 
 def write_pickle_file(filename, object_to_save):
@@ -85,14 +85,30 @@ def get_shapes_of_network(model):
         shapes_of_model.append(list(layer.shape))
     return shapes_of_model
 
+def intersection_of_embeds(z_l: torch.Tensor, z_u: torch.Tensor) -> Tuple[torch.Tensor]:
+    """
+    Args:
+        z_l: lower embedding bounds for each task, shape: [num_tasks x embed_dim],
+        z_u: upper embedding bounds for each task, shape: [num_tasks x embed_dim],
+    Returns:
+        z_l_common_embed: a lower bound intersection over task embeddings, shape: 1 x embed_dim
+        z_u_common_embed: an upper bound intersection over task embeddings, shape: 1 x embed_dim
+    """
+
+    z_l_common_embed = z_l.max(dim=0).values
+    z_u_common_embed = z_u.min(dim=0).values
+    z_u_common_embed  = torch.where(z_u_common_embed < z_l_common_embed, (z_u_common_embed + z_l_common_embed)/2, z_u_common_embed)
+    z_l_common_embed  = torch.where(z_u_common_embed < z_l_common_embed, (z_u_common_embed + z_l_common_embed)/2, z_l_common_embed)
+
+    list_of_violations = [idx for idx, el in enumerate(z_u_common_embed - z_l_common_embed < 0) if el]
+    assert list_of_violations == [], f"These dimensions of the task embeddings have an empty intersection: {list_of_violations}"
+
+    return z_l_common_embed, z_u_common_embed
+
 def calculate_interval_intersection(hypernetwork, parameters, current_task_id):
     """
-    Calculate intervals' intersection:
-        - If the intersection is empty, then upper of lower logit of the previous task's embedding
-          is chosen.
-        - If we have only one task, then functions returns the corresponding embedding
-        - This function should be invoked only when the perturbated epsilon is increased
-          to the specified value
+    Calculate intervals' intersection, where each embedding is mapped by sigma * tanh
+    firstly
 
     Arguments:
     ----------
@@ -114,54 +130,22 @@ def calculate_interval_intersection(hypernetwork, parameters, current_task_id):
 
         if current_task_id == 0:
             first_emb = hypernetwork.conditional_params[0].clone()
-            sigma = eps/2 * F.softmax(hypernetwork.perturbated_eps_T[0], dim=-1)
-            first_emb = sigma * torch.tanh(first_emb)
+            radii = hypernetwork.perturbated_eps_T[0].clone()
+            radii = eps * F.softmax(radii, dim=-1)
+            first_emb = radii * torch.tanh(first_emb)
 
             return first_emb
         else:
-            prev_detached_embds = []
-            prev_radii = []
+            
+            radii = torch.stack([
+                eps * F.softmax(hypernetwork.perturbated_eps_T[i].clone(), dim=-1) for i in range(current_task_id+1)
+            ], dim=0)
 
-            for i in range(1, current_task_id+1):
-                prev_emb = hypernetwork.conditional_params[i].clone()
-                radii = eps * F.softmax(hypernetwork.perturbated_eps_T[i], dim=-1)
-                sigma = radii/2
-                prev_emb = sigma * torch.tanh(prev_emb)
-
-                prev_detached_embds.append(prev_emb)
-                prev_radii.append(radii)
-
-
-            inter_emb = hypernetwork.conditional_params[0].clone()
-            radii = eps * F.softmax(hypernetwork.perturbated_eps_T[0], dim=-1)
-            sigma = radii/2
-            inter_emb = sigma * torch.tanh(inter_emb)
-
-            zl_inter_emb = inter_emb - radii
-            zu_inter_emb = inter_emb + radii
-
-            for (emb, radii) in zip(prev_detached_embds, prev_radii):
-                zl_curr_emb = emb - radii
-                zu_curr_emb = emb + radii
-
-                # We need to identify which components of the common embedding are higher/lower
-                # than components of the current embedding
-                mask_1 = zu_inter_emb >= zl_curr_emb
-                mask_2 = zu_inter_emb <= zu_curr_emb
-                mask_1_2 = mask_1 * mask_2
-
-                mask_3 = zl_inter_emb >= zl_curr_emb
-                mask_4 = zl_inter_emb <= zu_curr_emb
-                mask_3_4 = mask_3 * mask_4
-
-                zl_inter_emb[mask_1_2] = zl_curr_emb[mask_1_2]
-                zu_inter_emb[mask_1_2] = zu_inter_emb[mask_1_2]
-
-                zl_inter_emb[mask_3_4] = zl_inter_emb[mask_3_4]
-                zu_inter_emb[mask_3_4] = zu_curr_emb[mask_3_4]
-               
-
-                assert (zl_inter_emb <= zu_inter_emb).all(), "Lower bounds should be lower or equal to upper bounds"
+            z_temp = torch.stack([
+                radii[i] * torch.tanh(hypernetwork.conditional_params[i].clone()) for i in range(current_task_id+1)
+            ], dim=0)
+            
+            zl_inter_emb, zu_inter_emb = intersection_of_embeds(z_temp - radii, z_temp + radii)
 
             middle_inter_emb = (zu_inter_emb + zl_inter_emb) / 2.0
 
@@ -342,7 +326,8 @@ def evaluate_previous_tasks(hypernetwork,
         currently_tested_task = list_of_permutations[task]
 
         # Generate weights of the target network
-        target_weights = hypernetwork.forward(cond_id=task, perturbated_eps=parameters['perturbated_epsilon'])
+        target_weights = hypernetwork.forward(cond_id=task, perturbated_eps=parameters['perturbated_epsilon'],
+                                              return_extended_output=False)
 
         accuracy = calculate_accuracy(
             currently_tested_task,
@@ -413,7 +398,8 @@ def evaluate_previous_tasks_for_intersection(hypernetwork,
 
     inter_target_weights = hypernetwork.forward(cond_input = common_emb.view(1, -1),
                                                 use_common_embedding=True,
-                                                common_radii=common_radii)
+                                                common_radii=common_radii,
+                                                return_extended_output=False)
 
     for task in range(parameters['number_of_task'] + 1):
         # Target entropy calculation should be included here: hypernetwork has to be inferred
@@ -513,28 +499,25 @@ def plot_intervals_around_embeddings(hypernetwork,
     no_tasks = current_task + 1 if current_task is not None else parameters["number_of_tasks"]
     n_embs   = parameters["embedding_size"]
     eps = parameters["perturbated_epsilon"]
-    sigma = eps/2
 
     with torch.no_grad():
+        radii_detached = hypernetwork.perturbated_eps_T
+        cond_params_detached = hypernetwork.conditional_params
         embds_detached = [
-            sigma * F.softmax(hypernetwork.perturbated_eps_T[i], dim=-1) * \
-                torch.tanh(hypernetwork.conditional_params[i].detach().clone()) for i in range(no_tasks)
-        ]
-
-        radii = [
-            eps * F.softmax(hypernetwork.perturbated_eps_T[cond_id], dim=-1) for cond_id in range(no_tasks)
+            eps * F.softmax(radii_detached[i].clone(), dim=-1).to(parameters["device"]) * \
+                torch.tanh(cond_params_detached[i].clone()) for i in range(no_tasks)
         ]
         
         # Create a plot
-        fig    = plt.figure(figsize=(10, 6))
-        cm     = plt.get_cmap('gist_rainbow')
+        fig = plt.figure(figsize=(10, 6))
+        cm  = plt.get_cmap('gist_rainbow')
 
         if not plot_common_embedding:
             colors = [cm(1.*i/no_tasks) for i in range(no_tasks)]
         else:
             colors = [cm(1.*i/(no_tasks + 1)) for i in range(no_tasks + 1)]
 
-        for task_id, (tasks_embeddings, radii_per_emb) in enumerate(zip(embds_detached, radii)):
+        for task_id, (tasks_embeddings, radii_per_emb) in enumerate(zip(embds_detached, radii_detached)):
             
             tasks_embeddings = tasks_embeddings.cpu().detach().numpy()
             radii_per_emb = radii_per_emb.cpu().detach().numpy()
@@ -557,18 +540,16 @@ def plot_intervals_around_embeddings(hypernetwork,
                                                                                             parameters=parameters,
                                                                                             current_task_id=current_task)
             
-            upper_radii = zu_inter_emb - middle_inter_emb
-            lower_radii = middle_inter_emb - zl_inter_emb
+            radii = (zu_inter_emb - zl_inter_emb)/2.0
 
             middle_inter_emb = middle_inter_emb.cpu().detach().numpy()
-            upper_radii = upper_radii.cpu().detach().numpy()
-            lower_radii = lower_radii.cpu().detach().numpy()
+            radii = radii.cpu().detach().numpy()
             
             plt.scatter(x, middle_inter_emb, label=f'Intersection', marker='o', c=[colors[-1]], alpha=1.0)
 
             for i in range(len(x)):
-                plt.vlines(x[i], ymin=middle_inter_emb[i] - lower_radii[i],
-                            ymax=middle_inter_emb[i] + upper_radii[i], linewidth=2, colors=[colors[-1]], alpha=1.0)
+                plt.vlines(x[i], ymin=middle_inter_emb[i] - radii[i],
+                            ymax=middle_inter_emb[i] + radii[i], linewidth=2, colors=[colors[-1]], alpha=1.0)
 
 
         # Create a save path
@@ -582,7 +563,7 @@ def plot_intervals_around_embeddings(hypernetwork,
         plt.ylabel("Embedding's value")
         plt.title(f"Intervals around embeddings with sum of radius = {parameters['perturbated_epsilon']}, dim = {n_embs}")
         plt.xticks(x)
-        plt.legend()
+        plt.legend(loc='upper left', bbox_to_anchor=(1.05, 1.0))
         plt.grid()
         plt.tight_layout()
         plt.savefig(save_path, dpi=300)
@@ -653,8 +634,8 @@ def train_single_task(hypernetwork,
     if parameters['best_model_selection_method'] == 'val_loss':
         # Store temporary best models to keep those with the highest
         # validation accuracy.
-        best_hypernetwork = hypernetwork
-        best_target_network = target_network
+        best_hypernetwork = deepcopy(hypernetwork)
+        best_target_network = deepcopy(target_network)
         best_val_accuracy = 0.
         
     elif parameters['best_model_selection_method'] != 'last_model':
@@ -665,8 +646,10 @@ def train_single_task(hypernetwork,
     target_network.train()
     print(f'task: {current_no_of_task}')
     if current_no_of_task > 0:
-        regularization_targets = hreg.get_current_targets(
-            current_no_of_task, hypernetwork)
+        lower_reg_targets, middle_reg_targets, upper_reg_targets = hreg.get_current_targets(
+                                                                    task_id=current_no_of_task,
+                                                                    hnet=hypernetwork,
+                                                                    eps=parameters["perturbated_epsilon"])
         previous_hnet_theta = None
         previous_hnet_embeddings = None
 
@@ -720,7 +703,7 @@ def train_single_task(hypernetwork,
 
         # Get weights, lower weights, upper weights and predicted radii
         # returned by the hypernetwork
-        target_weights, lower_weights, upper_weights, _ = hypernetwork.forward(cond_id=current_no_of_task, 
+        lower_weights, target_weights, upper_weights, _ = hypernetwork.forward(cond_id=current_no_of_task, 
                                                                                 return_extended_output=True,
                                                                                 perturbated_eps=eps)
     
@@ -748,22 +731,6 @@ def train_single_task(hypernetwork,
         
         lower_pred, middle_pred, upper_pred = parse_predictions(predictions)
 
-        # Loss which take care about non-empty intervals' intersection
-        # loss_embeddings = 0.0
-        # if current_no_of_task > 0:
-            
-        #     for i in range(current_no_of_task):
-
-        #         prev_embd = hypernetwork.conditional_params[i].detach().clone()
-
-        #         curr_embd = hypernetwork.conditional_params[current_no_of_task]
-
-        #         loss_embeddings += (curr_embd - prev_embd).pow(2).mean() + \
-        #                             (torch.var(curr_embd) - torch.var(prev_embd))
-
-            
-        #     loss_embeddings = loss_embeddings / (current_no_of_task+1)           
-
         
         # We need to check wheter the distance between the lower weights
         # and the upper weights isn't collapsed into "one point" (short interval)
@@ -779,29 +746,41 @@ def train_single_task(hypernetwork,
             z_u=upper_pred,
             kappa=kappa
         )
-            
 
+        # Get the worst case error
+        worst_case_error = criterion.worst_case_error
+            
         loss_regularization = 0.
         if current_no_of_task > 0:
             loss_regularization = hreg.calc_fix_target_reg(
                 hypernetwork, current_no_of_task,
-                targets=regularization_targets,
+                upper_targets=upper_reg_targets,
+                middle_targets=middle_reg_targets,
+                lower_targets=lower_reg_targets,
                 mnet=target_network, prev_theta=previous_hnet_theta,
                 prev_task_embs=previous_hnet_embeddings,
                 inds_of_out_heads=None,
-                batch_size=-1
+                batch_size=-1,
+                perturbated_eps=parameters["perturbated_epsilon"]
             )
 
         # Calculate total loss
         loss = loss_current_task + \
             parameters['beta'] * loss_regularization / max(1, current_no_of_task) - \
             parameters['gamma'] * loss_weights
-            # parameters['rho'] * loss_embeddings
         
         # Save total loss to file
+        if iteration > 0 or current_no_of_task > 0:
+            header = ''
+        else:
+            header = 'current_no_of_task;iteration;total_loss;cross_entropy_loss;' + \
+                     'worst_case_error;loss_regularization;loss_weights'
+            
         append_row_to_file(
-        filename=f'{parameters["saving_folder"]}total_loss.txt',
-        elements=f'{current_no_of_task};{iteration};{loss}'
+        filename=f'{parameters["saving_folder"]}total_loss',
+        elements=f'{current_no_of_task};{iteration};{loss};{loss_current_task};'
+                 f'{worst_case_error};{loss_regularization};{loss_weights}',
+        header=header
         )  
 
         loss.backward()
@@ -852,20 +831,18 @@ def train_single_task(hypernetwork,
                 },
                 evaluation_dataset='validation')
             
-            # Get the worst case error
-            worst_case_error = criterion.worst_case_error
-
             print(f'Task {current_no_of_task}, iteration: {iteration + 1}, '
                   f' loss: {loss.item()}, validation accuracy: {accuracy}, '
                   f' worst case error: {worst_case_error}, '
                   f' perturbated_epsilon: {eps}')
             # If the accuracy on the validation dataset is higher
             # than previously
-            if parameters['best_model_selection_method'] == 'val_loss':
+            if parameters['best_model_selection_method'] == 'val_loss' and \
+                round(eps, 0) == parameters['perturbated_epsilon']:
                 if accuracy > best_val_accuracy:
                     best_val_accuracy = accuracy
-                    best_hypernetwork = hypernetwork
-                    best_target_network = target_network
+                    best_hypernetwork = deepcopy(hypernetwork)
+                    best_target_network = deepcopy(target_network)
             
             if parameters['number_of_epochs'] is not None and \
                parameters['lr_scheduler'] and \
@@ -999,11 +976,10 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
            prev_emb = hypernetwork.conditional_params[no_of_task-1].detach().clone()
            prev_emb.requires_grad = False
 
-           hypernetwork.internal_params[no_of_task] = nn.Parameter(
+           hypernetwork.conditional_params[no_of_task] = nn.Parameter(
                data=prev_emb,
                requires_grad=True
            )
-            
 
         hypernetwork, target_network = train_single_task(
             hypernetwork,
@@ -1027,7 +1003,7 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
                 target_network.weights
             )
         
-        # Freeze the already learned embedding
+        # Freeze the already learned embeddings and radii
         hypernetwork.detach_tensor(idx = no_of_task)
 
         # Evaluate previous tasks
@@ -1055,34 +1031,20 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
         # tasks' embeddings
 
         # Get the first task's embedding and calculate the common embedding
-        # as average
         with torch.no_grad():
             
             if no_of_task == 0:
                 common_emb = calculate_interval_intersection(hypernetwork=hypernetwork,
                                                                 parameters=parameters,
                                                                 current_task_id=no_of_task)
-                common_radii = parameters['perturbated_epsilon'] * F.softmax(hypernetwork.perturbated_eps_T[0], dim=-1)
+                common_radii = hypernetwork.perturbated_eps_T[0].clone()
+                common_radii = parameters['perturbated_epsilon'] * F.softmax(common_radii, dim=-1)
             else:
                 zl_common_emb, common_emb, zu_common_emb = calculate_interval_intersection(hypernetwork=hypernetwork,
                                                                                             parameters=parameters,
                                                                                             current_task_id=no_of_task)
-                upper_radii = zu_common_emb - common_emb
-                lower_radii = common_emb - zl_common_emb
+                common_radii = (zu_common_emb - zl_common_emb)/2.0
                 
-                common_radii = torch.minimum(upper_radii, lower_radii)
-
-            # common_embedding = hypernetwork.conditional_params[0]
-
-            # if no_of_task > 0:
-
-            #     for task_id in range(1, no_of_task+1):
-            #         curr_emb = hypernetwork.conditional_params[task_id]
-            #         common_embedding = common_embedding + curr_emb
-
-            #     common_embedding = common_embedding / (no_of_task + 1)
-
-
             # Evaluate previous tasks for intersection
             results_from_interval_intersection = evaluate_previous_tasks_for_intersection(
                                                     hypernetwork,
@@ -1220,7 +1182,7 @@ if __name__ == "__main__":
     dataset = 'PermutedMNIST'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet'
     part = 0
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") # Generate timestamp
-    create_grid_search = True
+    create_grid_search = False
 
     if create_grid_search:
         summary_results_filename = 'grid_search_results'
