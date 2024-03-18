@@ -187,7 +187,7 @@ def calc_fix_target_reg(hnet, task_id, perturbated_eps, upper_targets=None,
     zeros = torch.zeros(hnet._cond_in_size)
 
     for i in ids_to_reg:
-        lower_weights_predicted = hnet.forward(cond_input=zl_prev_embds, 
+        lower_weights_predicted = hnet.forward(cond_input=zl_prev_embds[i].view(1, -1), 
                                                weights=weights,
                                                return_extended_output=False,
                                                perturbated_eps=None,
@@ -199,7 +199,7 @@ def calc_fix_target_reg(hnet, task_id, perturbated_eps, upper_targets=None,
                                                return_extended_output=False,
                                                perturbated_eps=perturbated_eps)
         
-        upper_weights_predicted = hnet.forward(cond_input=zu_prev_embds, 
+        upper_weights_predicted = hnet.forward(cond_input=zu_prev_embds[i].view(1, -1), 
                                                weights=weights,
                                                return_extended_output=False,
                                                perturbated_eps=None,

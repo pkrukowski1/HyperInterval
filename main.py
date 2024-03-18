@@ -634,8 +634,8 @@ def train_single_task(hypernetwork,
     if parameters['best_model_selection_method'] == 'val_loss':
         # Store temporary best models to keep those with the highest
         # validation accuracy.
-        best_hypernetwork = deepcopy(hypernetwork)
-        best_target_network = deepcopy(target_network)
+        best_hypernetwork = deepcopy(hypernetwork).to(parameters['device'])
+        best_target_network = deepcopy(target_network).to(parameters['device'])
         best_val_accuracy = 0.
         
     elif parameters['best_model_selection_method'] != 'last_model':
