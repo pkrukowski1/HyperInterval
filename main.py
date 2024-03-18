@@ -737,7 +737,8 @@ def train_single_task(hypernetwork,
         loss_weights = 0.0
         for W_u, W_l in zip(upper_weights, lower_weights):
 
-            loss_weights += (W_u - W_l).pow(2).mean()
+            # loss_weights += (W_u - W_l).pow(2).mean()
+            loss_weights += (W_u - W_l).abs().mean()
 
         loss_current_task = criterion(
             y_pred=middle_pred,
@@ -1182,7 +1183,7 @@ if __name__ == "__main__":
     dataset = 'PermutedMNIST'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet'
     part = 0
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") # Generate timestamp
-    create_grid_search = False
+    create_grid_search = True
 
     if create_grid_search:
         summary_results_filename = 'grid_search_results'
