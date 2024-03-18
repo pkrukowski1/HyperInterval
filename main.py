@@ -526,11 +526,11 @@ def plot_intervals_around_embeddings(hypernetwork,
             x = [_ for _ in range(parameters["embedding_size"])]
 
             # Create a scatter plot
-            plt.scatter(x, tasks_embeddings, label=f'Task_{task_id}', marker='o', c=[colors[task_id]], alpha=0.1)
+            plt.scatter(x, tasks_embeddings, label=f'Task_{task_id}', marker='o', c=[colors[task_id]], alpha=0.3)
 
             for i in range(len(x)):
                 plt.vlines(x[i], ymin=tasks_embeddings[i] - radii_per_emb[i],
-                            ymax=tasks_embeddings[i] + radii_per_emb[i], linewidth=2, colors=[colors[task_id]], alpha=0.1)
+                            ymax=tasks_embeddings[i] + radii_per_emb[i], linewidth=2, colors=[colors[task_id]], alpha=0.3)
                 
         if current_task is not None and \
             current_task > 0 and \
@@ -937,20 +937,11 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
             cond_in_size=parameters['embedding_size'],
             activation_fn=parameters['activation_function'],
             layers=parameters['hypernetwork_hidden_layers'],
-            num_cond_embs=parameters['number_of_tasks']).to(
+            num_cond_embs=parameters['number_of_tasks'],
+            embd_dropout_rate=parameters['embd_dropout_rate']).to(
                 parameters['device'])
     else:
         raise Exception("Not implemented yet!")
-        # hypernetwork = ChunkedHMLP(
-        #     target_shapes=target_network.param_shapes[no_of_batch_norm_layers:],
-        #     chunk_size=parameters['chunk_size'],
-        #     chunk_emb_size=parameters['chunk_emb_size'],
-        #     cond_in_size=parameters['embedding_size'],
-        #     activation_fn=parameters['activation_function'],
-        #     layers=parameters['hypernetwork_hidden_layers'],
-        #     num_cond_embs=parameters['number_of_tasks']).to(
-        #         parameters['device']
-        # )
 
     criterion = IBP_Loss()
     dataframe = pd.DataFrame(columns=[
@@ -1216,7 +1207,8 @@ if __name__ == "__main__":
                 hyperparameters["gammas"],
                 hyperparameters["perturbated_epsilon"],
                 hyperparameters["dropout_rate"],
-                hyperparameters['custom_init'])
+                hyperparameters['custom_init'],
+                hyperparameters['embd_dropout_rate'])
                 # hyperparameters['rhos'])
     ):
         embedding_size = elements[0]
@@ -1228,6 +1220,7 @@ if __name__ == "__main__":
         perturbated_eps = elements[7]
         dropout_rate = elements[8]
         custom_init = elements[9]
+        embd_dropout_rate = elements[10]
         # rho = elements[10]
 
         # Of course, seed is not optimized but it is easier to prepare experiments
@@ -1272,6 +1265,7 @@ if __name__ == "__main__":
             'kappa': hyperparameters["kappa"],
             'dropout_rate': dropout_rate,
             'custom_init': custom_init,
+            'embd_dropout_rate': embd_dropout_rate
             # 'rho': rho
         }
 

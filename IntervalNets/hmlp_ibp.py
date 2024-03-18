@@ -27,7 +27,7 @@ class HMLP_IBP(HMLP, HyperNetInterface):
                  layers=(100, 100), verbose=True, activation_fn=torch.nn.ReLU(),
                  use_bias=True, no_uncond_weights=False, no_cond_weights=False,
                  num_cond_embs=1, dropout_rate=-1, use_spectral_norm=False,
-                 use_batch_norm=False, *args, **kwargs):
+                 use_batch_norm=False, embd_dropout_rate=-1, *args, **kwargs):
 
         HMLP.__init__(self, target_shapes, uncond_in_size=uncond_in_size, cond_in_size=cond_in_size,
                  layers=layers, verbose=verbose, activation_fn=activation_fn,
@@ -37,7 +37,11 @@ class HMLP_IBP(HMLP, HyperNetInterface):
 
         
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.scale = 1. / (1 - self._dropout_rate)
+        self.embd_dropout_rate = embd_dropout_rate
+
+        if embd_dropout_rate != -1:
+            assert embd_dropout_rate >= 0 and embd_dropout_rate <= 1, "Dropout rate should be contained in the [0,1] interval"
+            self.embd_dropout = nn.Dropout(p = embd_dropout_rate)
         
         ### Create learnable epsilons which are summed up to the constant value
         self._perturbated_eps_T = nn.ParameterList()
@@ -177,6 +181,9 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         ### Process inputs through the network ###
         if not use_common_embedding:
             h = eps * torch.tanh(h)
+        
+        if self.embd_dropout_rate != -1:
+            h = self.embd_dropout(h)
 
         for i in range(len(fc_weights)):
             last_layer = i == (len(fc_weights) - 1)
@@ -194,16 +201,6 @@ class HMLP_IBP(HMLP, HyperNetInterface):
                 # Dropout
                 if self._dropout_rate != -1:
                     raise Exception("Dropout not implemented yet!")
-                    if self.training:
-                        z_l, z_u = h - eps, h + eps
-
-                        mask = torch.bernoulli(self._dropout_rate * torch.ones_like(h)).long()
-                        z_l = z_l.where(mask != 1, torch.ones_like(z_l)) * self.scale
-                        h = h.where(mask != 1, torch.ones_like(h)) * self.scale
-                        z_u = z_u.where(mask != 1, torch.ones_like(z_u)) * self.scale
-
-                        assert (z_l <= h).all(), "Lower bound must be less than or equal to middle bound."
-                        assert (h <= z_u).all(), "Middle bound must be less than or equal to upper bound."
 
                 # Non-linearity
                 if self._act_fn is not None:
