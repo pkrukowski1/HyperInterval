@@ -816,7 +816,7 @@ def train_single_task(hypernetwork,
 
             # Save distance between the upper and lower weights to file
             append_row_to_file(
-            filename=f'{parameters["saving_folder"]}upper_lower_weights_distance.txt',
+            filename=f'{parameters["saving_folder"]}upper_lower_weights_distance',
             elements=f'{current_no_of_task};{iteration};{loss_weights}'
             )
 
