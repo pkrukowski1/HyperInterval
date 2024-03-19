@@ -95,16 +95,13 @@ def intersection_of_embeds(z_l: torch.Tensor, z_u: torch.Tensor) -> Tuple[torch.
         z_u_common_embed: an upper bound intersection over task embeddings, shape: 1 x embed_dim
     """
 
-    z_l_common_embed = z_l.max(dim=0).values
-    z_u_common_embed = z_u.min(dim=0).values
+    z_l_max = z_l.max(dim=0).values
+    z_u_min = z_u.min(dim=0).values
 
-    z_u_common_embed_final = torch.where(z_u_common_embed < z_l_common_embed, (z_u_common_embed + z_l_common_embed)/2, z_u_common_embed)
-    z_l_common_embed_final = torch.where(z_u_common_embed < z_l_common_embed, (z_u_common_embed + z_l_common_embed)/2, z_l_common_embed)
+    z_u_common_embed = torch.where(z_u_min < z_l_max, (z_u_min + z_l_max)/2, z_u_min)
+    z_l_common_embed = torch.where(z_u_min < z_l_max, (z_u_min + z_l_max)/2, z_l_max)
 
-    assert (z_l_common_embed_final <= z_u_common_embed_final).all(), f"Upper bounds should be greater or equal to lower bounds, upper: {z_u_common_embed_final}, lower: {z_l_common_embed_final}"
-
-    # list_of_violations = [idx for idx, el in enumerate(z_u_common_embed - z_l_common_embed < 0) if el]
-    # assert list_of_violations == [], f"These dimensions of the task embeddings have an empty intersection: {list_of_violations}"
+    assert (z_l_common_embed <= z_u_common_embed).all(), f"Upper bounds should be greater or equal to lower bounds, upper: {z_u_common_embed}, lower: {z_l_common_embed}"
 
     return z_l_common_embed, z_u_common_embed
 
