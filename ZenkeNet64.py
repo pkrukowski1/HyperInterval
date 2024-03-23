@@ -196,7 +196,7 @@ class ZenkeNet(Classifier):
 
         self._is_properly_setup()
 
-    def forward(self, x, weights=None, distilled_params=None, condition=None, upper_weights=None, lower_weights=None):
+    def forward(self, x, weights=None, distilled_params=None, condition=None):
         """Compute the output :math:`y` of this network given the input
         :math:`x`.
 

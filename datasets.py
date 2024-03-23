@@ -232,7 +232,7 @@ def set_hyperparameters(dataset,
                 'perturbated_epsilon': [10.0],
                 'hypernetworks_hidden_layers': [[100, 100]],
                 'dropout_rate': [-1],
-                'embd_dropout_rate': [0.25],
+                'embd_dropout_rate': [-1],
                 'best_model_selection_method': 'val_loss',
                 'saving_folder': './Results/'
                 f'permuted_mnist_final_grid_experiments/last_model/'

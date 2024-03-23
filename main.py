@@ -10,19 +10,15 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import torch.optim as optim
-from IntervalNets.interval_mlp import IntervalMLP
 from hypnettorch.mnets.resnet import ResNet
 from copy import deepcopy
-# from hypnettorch.hnets import HMLP
-from IntervalNets.IntervalZenkeNet64 import ZenkeNet
-from IntervalNets.interval_ResNet import IntervalResNet
+from ZenkeNet64 import ZenkeNet
 import hnet_regularizer as hreg
-# from hypnettorch.mnets.mlp import MLP
+from hypnettorch.mnets.mlp import MLP
 from datetime import datetime
 from itertools import product
-from copy import deepcopy
 from loss_functions import IBP_Loss
-from IntervalNets.hmlp_ibp import HMLP_IBP
+from hmlp_ibp import HMLP_IBP
 from datasets import (
     set_hyperparameters,
     prepare_split_cifar100_tasks,
@@ -101,13 +97,13 @@ def intersection_of_embeds(z_l: torch.Tensor, z_u: torch.Tensor) -> Tuple[torch.
     z_u_common_embed = torch.where(z_u_min < z_l_max, (z_u_min + z_l_max)/2, z_u_min)
     z_l_common_embed = torch.where(z_u_min < z_l_max, (z_u_min + z_l_max)/2, z_l_max)
 
-    assert (z_l_common_embed <= z_u_common_embed).all(), f"Upper bounds should be greater or equal to lower bounds, upper: {z_u_common_embed}, lower: {z_l_common_embed}"
+    assert (z_l_common_embed <= z_u_common_embed).all(), f"Upper bounds should be greater or equal to lower bounds"
 
     return z_l_common_embed, z_u_common_embed
 
 def calculate_interval_intersection(hypernetwork, parameters, current_task_id):
     """
-    Calculate intervals' intersection, where each embedding is mapped by sigma * tanh
+    Calculate intervals' intersection
     firstly
 
     Arguments:
@@ -130,9 +126,6 @@ def calculate_interval_intersection(hypernetwork, parameters, current_task_id):
 
         if current_task_id == 0:
             first_emb = hypernetwork.conditional_params[0].clone()
-            radii = hypernetwork.perturbated_eps_T[0].clone()
-            radii = eps * F.softmax(radii, dim=-1)
-            first_emb = radii * torch.tanh(first_emb)
 
             return first_emb
         else:
@@ -142,7 +135,7 @@ def calculate_interval_intersection(hypernetwork, parameters, current_task_id):
             ], dim=0)
 
             z_temp = torch.stack([
-                radii[i] * torch.tanh(hypernetwork.conditional_params[i].clone()) for i in range(current_task_id+1)
+                hypernetwork.conditional_params[i].clone() for i in range(current_task_id+1)
             ], dim=0)
             
             zl_inter_emb, zu_inter_emb = intersection_of_embeds(z_temp - radii, z_temp + radii)
@@ -257,12 +250,8 @@ def calculate_accuracy(data,
 
         logits = target_network.forward(
             x=test_input,
-            upper_weights=weights,
-            middle_weights=weights,
-            lower_weights=weights
+            weights=weights
         )
-
-        _, logits, _ = parse_predictions(logits)
        
         predictions = logits.max(dim=1)[1]
 
@@ -397,7 +386,6 @@ def evaluate_previous_tasks_for_intersection(hypernetwork,
     target_network.eval()
 
     inter_target_weights = hypernetwork.forward(cond_input = common_emb.view(1, -1),
-                                                use_common_embedding=True,
                                                 common_radii=common_radii,
                                                 return_extended_output=False)
 
@@ -498,14 +486,17 @@ def plot_intervals_around_embeddings(hypernetwork,
 
     no_tasks = current_task + 1 if current_task is not None else parameters["number_of_tasks"]
     n_embs   = parameters["embedding_size"]
-    eps = parameters["perturbated_epsilon"]
 
     with torch.no_grad():
-        radii_detached = hypernetwork.perturbated_eps_T
-        cond_params_detached = hypernetwork.conditional_params
+        radii_params = hypernetwork.perturbated_eps_T
+        cond_params  = hypernetwork.conditional_params
+
         embds_detached = [
-            eps * F.softmax(radii_detached[i].clone(), dim=-1).to(parameters["device"]) * \
-                torch.tanh(cond_params_detached[i].clone()) for i in range(no_tasks)
+            cond_params[i].clone() for i in range(no_tasks)
+        ]
+
+        radii_detached = [
+            radii_params[i].clone() for i in range(no_tasks)
         ]
         
         # Create a plot
@@ -569,23 +560,6 @@ def plot_intervals_around_embeddings(hypernetwork,
         plt.savefig(save_path, dpi=300)
         plt.close()
 
-def parse_predictions(x):
-    """
-    Parse the output of a target network to get lower, middle and upper predictions
-
-    Arguments:
-    ----------
-        *x*: (torch.Tensor) the output to be parsed
-    
-    Returns:
-    --------
-        a tuple of lower, middle and upper predictions
-    """
-
-    return map(lambda x_: cast(Tensor, x_.rename(None)), x.unbind("bounds"))  # type: ignore
-
-
-
 def train_single_task(hypernetwork,
                       target_network,
                       criterion,
@@ -646,10 +620,10 @@ def train_single_task(hypernetwork,
     target_network.train()
     print(f'task: {current_no_of_task}')
     if current_no_of_task > 0:
-        lower_reg_targets, middle_reg_targets, upper_reg_targets = hreg.get_current_targets(
-                                                                    task_id=current_no_of_task,
-                                                                    hnet=hypernetwork,
-                                                                    eps=parameters["perturbated_epsilon"])
+        middle_reg_targets = hreg.get_current_targets(
+                                task_id=current_no_of_task,
+                                hnet=hypernetwork,
+                                eps=parameters["perturbated_epsilon"])
         previous_hnet_theta = None
         previous_hnet_embeddings = None
 
@@ -711,25 +685,18 @@ def train_single_task(hypernetwork,
         # for the last saved tasks will be applied so there is no need to
         # give 'current_no_of_task' as a value for the 'condition' argument.
 
-        # lower_pred = target_network.forward(x=tensor_input,
-        #                                     weights=lower_weights)
+        lower_pred = target_network.forward(x=tensor_input,
+                                            weights=lower_weights)
         
-        # middle_pred = target_network.forward(x=tensor_input,
-        #                                     weights=target_weights)
+        middle_pred = target_network.forward(x=tensor_input,
+                                            weights=target_weights)
         
-        # upper_pred = target_network.forward(x=tensor_input,
-        #                                     weights=upper_weights)
+        upper_pred = target_network.forward(x=tensor_input,
+                                            weights=upper_weights)
 
 
-        # lower_pred, middle_pred = torch.minimum(lower_pred, middle_pred), torch.maximum(lower_pred, middle_pred)
-        # middle_pred, upper_pred = torch.minimum(upper_pred, middle_pred), torch.maximum(upper_pred, middle_pred)
-
-        predictions = target_network.forward(x=tensor_input,
-                                             upper_weights=upper_weights,
-                                             middle_weights=target_weights,
-                                             lower_weights=lower_weights)
-        
-        lower_pred, middle_pred, upper_pred = parse_predictions(predictions)
+        lower_pred, middle_pred = torch.minimum(lower_pred, middle_pred), torch.maximum(lower_pred, middle_pred)
+        middle_pred, upper_pred = torch.minimum(upper_pred, middle_pred), torch.maximum(upper_pred, middle_pred)
 
         
         # We need to check wheter the distance between the lower weights
@@ -737,7 +704,6 @@ def train_single_task(hypernetwork,
         loss_weights = 0.0
         for W_u, W_l in zip(upper_weights, lower_weights):
 
-            # loss_weights += (W_u - W_l).pow(2).mean()
             loss_weights += (W_u - W_l).abs().mean()
 
         loss_current_task = criterion(
@@ -755,14 +721,12 @@ def train_single_task(hypernetwork,
         if current_no_of_task > 0:
             loss_regularization = hreg.calc_fix_target_reg(
                 hypernetwork, current_no_of_task,
-                upper_targets=upper_reg_targets,
-                middle_targets=middle_reg_targets,
-                lower_targets=lower_reg_targets,
+                targets=middle_reg_targets,
                 mnet=target_network, prev_theta=previous_hnet_theta,
                 prev_task_embs=previous_hnet_embeddings,
                 inds_of_out_heads=None,
                 batch_size=-1,
-                perturbated_eps=parameters["perturbated_epsilon"]
+                eps=parameters["perturbated_epsilon"]
             )
 
         # Calculate total loss
@@ -890,7 +854,7 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
     # Create a target network which will be multilayer perceptron
     # or ResNet/ZenkeNet with internal weights
     if parameters['target_network'] == 'MLP':
-        target_network = IntervalMLP(n_in=parameters['input_shape'],
+        target_network = MLP(n_in=parameters['input_shape'],
                              n_out=output_shape,
                              hidden_layers=parameters['target_hidden_layers'],
                              use_bias=parameters['use_bias'],
@@ -1174,7 +1138,7 @@ if __name__ == "__main__":
     dataset = 'PermutedMNIST'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet'
     part = 0
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") # Generate timestamp
-    create_grid_search = True
+    create_grid_search = False
 
     if create_grid_search:
         summary_results_filename = 'grid_search_results'

@@ -60,14 +60,6 @@ class HMLP_IBP(HMLP, HyperNetInterface):
     def perturbated_eps_T(self):
         return self._perturbated_eps_T
     
-    @perturbated_eps_T.setter
-    def perturbated_eps_T(self, cond_id, val):
-
-        assert isinstance(cond_id, int)
-        assert isinstance(val, torch.Tensor)
-
-        self._perturbated_eps_T[cond_id] = val
-    
     def detach_tensor(self, idx):
         """
         This method detaches an embedding and the corresponding
@@ -80,8 +72,7 @@ class HMLP_IBP(HMLP, HyperNetInterface):
     def forward(self, uncond_input=None, cond_input=None, cond_id=None,
                 weights=None, distilled_params=None, condition=None,
                 ret_format='squeezed', return_extended_output = False,
-                perturbated_eps = None, use_common_embedding=False,
-                common_radii=None):
+                perturbated_eps = None, common_radii=None):
         """Compute the weights of a target network.
 
         Args:
@@ -95,16 +86,12 @@ class HMLP_IBP(HMLP, HyperNetInterface):
                                             lower target weight, upper target weights and predicted radii 
                                             of intervals
             perturbated_eps: (float)
-            use_common_embedding: (bool) a flag to indicate if a common_embedding should be applied
             common_radii: (torch.Tensor) radii of common embedding
 
         Returns:
             (list or torch.Tensor): See docstring of method
             :meth:`hnets.hnet_interface.HyperNetInterface.forward`.
         """
-
-        assert (use_common_embedding and common_radii is not None) or \
-                (not use_common_embedding and common_radii is None)
 
         uncond_input, cond_input, uncond_weights, _ = \
             self._preprocess_forward_args(uncond_input=uncond_input,
@@ -145,8 +132,7 @@ class HMLP_IBP(HMLP, HyperNetInterface):
 
             print(f"Radii list shape: {eps.shape}")
         else:
-            assert use_common_embedding
-            assert common_radii is not None
+            assert common_radii is not None, "Please calculate radii of the intervals' intersections"
 
             eps = common_radii
             eps = eps.to(self._device)
@@ -177,10 +163,6 @@ class HMLP_IBP(HMLP, HyperNetInterface):
 
         if self._use_batch_norm:
             assert len(bn_scales) == len(fc_weights) - 1
-
-        ### Process inputs through the network ###
-        if not use_common_embedding:
-            h = eps * torch.tanh(h)
         
         if self.embd_dropout_rate != -1:
             h = self.embd_dropout(h)
@@ -197,10 +179,6 @@ class HMLP_IBP(HMLP, HyperNetInterface):
                 # Batch-norm
                 if self._use_batch_norm:
                    raise Exception("BatchNorm not implemented for hypernets!")
-                
-                # Dropout
-                if self._dropout_rate != -1:
-                    raise Exception("Dropout not implemented yet!")
 
                 # Non-linearity
                 if self._act_fn is not None:
