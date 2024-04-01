@@ -667,6 +667,7 @@ def train_single_task(hypernetwork,
         worst_case_error = criterion.worst_case_error
             
         loss_regularization = 0.
+        loss_embeddings = 0.
 
         if current_no_of_task > 0:
             loss_regularization = hreg.calc_fix_target_reg(
@@ -678,11 +679,22 @@ def train_single_task(hypernetwork,
                 batch_size=-1,
                 eps=parameters["perturbated_epsilon"]
             )
+
+            for prev_task_id in range(current_no_of_task):
+
+                prev_embd  = hypernetwork.conditional_params[prev_task_id]
+                prev_radii = parameters["perturbated_epsilon"] * F.softmax(hypernetwork.perturbated_eps_T[prev_task_id], dim=-1)
+                prev_radii_inv = 1 / (prev_radii + 1e-10)
+
+                curr_embd = hypernetwork.conditional_params[current_no_of_task]
+
+                loss_embeddings = loss_embeddings + (prev_radii_inv * (curr_embd - prev_embd)).pow(2).sum()
         
 
         # Calculate total loss
         loss = loss_current_task + \
-            parameters['beta'] * loss_regularization / max(1, current_no_of_task)
+            parameters['beta'] * loss_regularization / max(1, current_no_of_task) + \
+            parameters['rho'] * loss_embeddings
         
         # Save total loss to file
         if iteration > 0 or current_no_of_task > 0:
@@ -873,6 +885,16 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
     no_tasks = parameters['number_of_tasks']
 
     for no_of_task in range(no_tasks):
+
+        if parameters['custom_init'] and no_of_task > 0:
+            
+           prev_emb = hypernetwork.conditional_params[no_of_task-1].detach().clone()
+           prev_emb.requires_grad = False
+
+           hypernetwork.conditional_params[no_of_task] = nn.Parameter(
+               data=prev_emb,
+               requires_grad=True
+           )
 
         hypernetwork, target_network = train_single_task(
             hypernetwork,
@@ -1076,7 +1098,9 @@ if __name__ == "__main__":
                 hyperparameters["seed"],
                 hyperparameters["perturbated_epsilon"],
                 hyperparameters["dropout_rate"],
-                hyperparameters['embd_dropout_rate'])
+                hyperparameters["embd_dropout_rate"],
+                hyperparameters["rhos"],
+                hyperparameters["custom_init"])
     ):
         embedding_size = elements[0]
         learning_rate = elements[1]
@@ -1086,6 +1110,8 @@ if __name__ == "__main__":
         perturbated_eps = elements[6]
         dropout_rate = elements[7]
         embd_dropout_rate = elements[8]
+        rho = elements[9]
+        custom_init = elements[10]
         
         # Of course, seed is not optimized but it is easier to prepare experiments
         # for multiple seeds in such a way
@@ -1128,6 +1154,8 @@ if __name__ == "__main__":
             'kappa': hyperparameters["kappa"],
             'dropout_rate': dropout_rate,
             'embd_dropout_rate': embd_dropout_rate,
+            'rho': rho,
+            'custom_init': custom_init
         }
 
         os.makedirs(f"{parameters['saving_folder']}", exist_ok=True)

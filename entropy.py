@@ -52,10 +52,7 @@ def translate_output_MNIST_classes(relative_labels, task, mode):
     return y_translated
 
 def get_task_and_class_prediction_based_on_logits(
-    lower_inferenced_logits_of_all_tasks,
-    middle_inferenced_logits_of_all_tasks,
-    upper_inferenced_logits_of_all_tasks,
-    setup, dataset
+    middle_inferenced_logits_of_all_tasks, dataset
 ):
     """
     Get task prediction for consecutive samples based on entropy values
@@ -81,30 +78,15 @@ def get_task_and_class_prediction_based_on_logits(
     number_of_samples = middle_inferenced_logits_of_all_tasks.shape[1]
 
     for no_of_sample in range(number_of_samples):
-        lower_task_entropies = torch.zeros(middle_inferenced_logits_of_all_tasks.shape[0])
         middle_task_entropies = torch.zeros(middle_inferenced_logits_of_all_tasks.shape[0])
-        upper_task_entropies = torch.zeros(middle_inferenced_logits_of_all_tasks.shape[0])
-
-        lower_all_task_single_output_sample = lower_inferenced_logits_of_all_tasks[
-            :, no_of_sample, :
-        ]
 
         middle_all_task_single_output_sample = middle_inferenced_logits_of_all_tasks[
             :, no_of_sample, :
         ]
 
-        upper_all_task_single_output_sample = upper_inferenced_logits_of_all_tasks[
-            :, no_of_sample, :
-        ]
 
         # Calculate entropy based on results from all tasks
         for no_of_inferred_task in range(middle_task_entropies.shape[0]):
-            lower_softmaxed_inferred_task = F.softmax(
-                lower_all_task_single_output_sample[no_of_inferred_task], dim=-1
-            )
-            lower_task_entropies[no_of_inferred_task] = -1 * torch.sum(
-                lower_softmaxed_inferred_task * torch.log(lower_softmaxed_inferred_task)
-            )
 
             middle_softmaxed_inferred_task = F.softmax(
                 middle_all_task_single_output_sample[no_of_inferred_task], dim=-1
@@ -113,25 +95,7 @@ def get_task_and_class_prediction_based_on_logits(
                 middle_softmaxed_inferred_task * torch.log(middle_softmaxed_inferred_task)
             )
 
-            upper_softmaxed_inferred_task = F.softmax(
-                upper_all_task_single_output_sample[no_of_inferred_task], dim=-1
-            )
-            upper_task_entropies[no_of_inferred_task] = -1 * torch.sum(
-                upper_softmaxed_inferred_task * torch.log(upper_softmaxed_inferred_task)
-            )
-
-        lower_selected_task_id  = torch.argmin(lower_task_entropies)
-        middle_selected_task_id = torch.argmin(middle_task_entropies)
-        upper_selected_task_id  = torch.argmin(upper_task_entropies)
-
-        selected_task_id = torch.stack([
-            lower_selected_task_id,
-            middle_selected_task_id,
-            upper_selected_task_id
-        ])
-
-        selected_task_id = selected_task_id.mode(dim=0)
-        selected_task_id = selected_task_id.values
+        selected_task_id = torch.argmin(middle_task_entropies)
 
         predicted_tasks.append(selected_task_id.item())
         target_output = middle_all_task_single_output_sample[selected_task_id.item()]
@@ -185,53 +149,35 @@ def calculate_entropy_and_predict_classes_separately(experiment_models):
         )
 
         with torch.no_grad():
-            lower_logits_outputs_for_different_tasks  = []
             middle_logits_outputs_for_different_tasks = []
-            upper_logits_outputs_for_different_tasks  = []
 
             for inferenced_task in range(task + 1):
-                lower_weights, middle_weights, upper_weights, _ = hypernetwork.forward(cond_id=inferenced_task, 
-                                                                perturbated_eps=perturbated_eps,
-                                                                return_extended_output=True)
+                middle_weights = hypernetwork.forward(cond_id=inferenced_task, 
+                                                        perturbated_eps=perturbated_eps,
+                                                        return_extended_output=False)
                 
                 # Try to predict task for all samples from "task"
                 logits = target_network.forward(
                     x=X_test,
-                    lower_weights=lower_weights,
+                    lower_weights=middle_weights,
                     middle_weights=middle_weights,
-                    upper_weights=upper_weights
+                    upper_weights=middle_weights
                 )
 
-                lower_logits, middle_logits, upper_logits = parse_predictions(logits)
+                _, middle_logits, _ = parse_predictions(logits)
 
 
-                lower_logits = (middle_logits + lower_logits)/2
-                upper_logits = (upper_logits + middle_logits)/2
-
-                lower_logits_outputs_for_different_tasks.append(lower_logits)
                 middle_logits_outputs_for_different_tasks.append(middle_logits)
-                upper_logits_outputs_for_different_tasks.append(upper_logits)
-
-            all_inferenced_tasks_lower = torch.stack(
-                lower_logits_outputs_for_different_tasks
-            )
 
             all_inferenced_tasks_middle = torch.stack(
                 middle_logits_outputs_for_different_tasks
-            )
-
-            all_inferenced_tasks_upper = torch.stack(
-                upper_logits_outputs_for_different_tasks
             )
 
             # Sizes of consecutive dimensions represent:
             # number of tasks x number of samples x number of output heads
         
         (predicted_tasks, predicted_classes) = get_task_and_class_prediction_based_on_logits(
-                                                        all_inferenced_tasks_lower,
                                                         all_inferenced_tasks_middle,
-                                                        all_inferenced_tasks_upper,
-                                                        hyperparameters["number_of_tasks"],
                                                         dataset_name,
                                                     )
         
