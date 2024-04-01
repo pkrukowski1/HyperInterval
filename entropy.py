@@ -52,7 +52,10 @@ def translate_output_MNIST_classes(relative_labels, task, mode):
     return y_translated
 
 def get_task_and_class_prediction_based_on_logits(
-    inferenced_logits_of_all_tasks, setup, dataset
+    lower_inferenced_logits_of_all_tasks,
+    middle_inferenced_logits_of_all_tasks,
+    upper_inferenced_logits_of_all_tasks,
+    setup, dataset
 ):
     """
     Get task prediction for consecutive samples based on entropy values
@@ -75,29 +78,65 @@ def get_task_and_class_prediction_based_on_logits(
        Positions of samples in the two above Tensors are the same.
     """
     predicted_classes, predicted_tasks = [], []
-    number_of_samples = inferenced_logits_of_all_tasks.shape[1]
+    number_of_samples = middle_inferenced_logits_of_all_tasks.shape[1]
+
     for no_of_sample in range(number_of_samples):
-        task_entropies = torch.zeros(inferenced_logits_of_all_tasks.shape[0])
-        all_task_single_output_sample = inferenced_logits_of_all_tasks[
+        lower_task_entropies = torch.zeros(middle_inferenced_logits_of_all_tasks.shape[0])
+        middle_task_entropies = torch.zeros(middle_inferenced_logits_of_all_tasks.shape[0])
+        upper_task_entropies = torch.zeros(middle_inferenced_logits_of_all_tasks.shape[0])
+
+        lower_all_task_single_output_sample = lower_inferenced_logits_of_all_tasks[
             :, no_of_sample, :
         ]
+
+        middle_all_task_single_output_sample = middle_inferenced_logits_of_all_tasks[
+            :, no_of_sample, :
+        ]
+
+        upper_all_task_single_output_sample = upper_inferenced_logits_of_all_tasks[
+            :, no_of_sample, :
+        ]
+
         # Calculate entropy based on results from all tasks
-        for no_of_inferred_task in range(task_entropies.shape[0]):
-            softmaxed_inferred_task = F.softmax(
-                all_task_single_output_sample[no_of_inferred_task], dim=-1
+        for no_of_inferred_task in range(middle_task_entropies.shape[0]):
+            lower_softmaxed_inferred_task = F.softmax(
+                lower_all_task_single_output_sample[no_of_inferred_task], dim=-1
             )
-            task_entropies[no_of_inferred_task] = -1 * torch.sum(
-                softmaxed_inferred_task * torch.log(softmaxed_inferred_task)
+            lower_task_entropies[no_of_inferred_task] = -1 * torch.sum(
+                lower_softmaxed_inferred_task * torch.log(lower_softmaxed_inferred_task)
             )
-        selected_task_id = torch.argmin(task_entropies)
+
+            middle_softmaxed_inferred_task = F.softmax(
+                middle_all_task_single_output_sample[no_of_inferred_task], dim=-1
+            )
+            middle_task_entropies[no_of_inferred_task] = -1 * torch.sum(
+                middle_softmaxed_inferred_task * torch.log(middle_softmaxed_inferred_task)
+            )
+
+            upper_softmaxed_inferred_task = F.softmax(
+                upper_all_task_single_output_sample[no_of_inferred_task], dim=-1
+            )
+            upper_task_entropies[no_of_inferred_task] = -1 * torch.sum(
+                upper_softmaxed_inferred_task * torch.log(upper_softmaxed_inferred_task)
+            )
+
+        lower_selected_task_id  = torch.argmin(lower_task_entropies)
+        middle_selected_task_id = torch.argmin(middle_task_entropies)
+        upper_selected_task_id  = torch.argmin(upper_task_entropies)
+
+        selected_task_id = torch.stack([
+            lower_selected_task_id,
+            middle_selected_task_id,
+            upper_selected_task_id
+        ])
+
+        selected_task_id = selected_task_id.mode(dim=0)
+        selected_task_id = selected_task_id.values
+
         predicted_tasks.append(selected_task_id.item())
-        target_output = all_task_single_output_sample[selected_task_id.item()]
+        target_output = middle_all_task_single_output_sample[selected_task_id.item()]
         output_relative_class = target_output.argmax().item()
-        if dataset == "CIFAR100_FeCAM_setup":
-            output_absolute_class = translate_output_CIFAR_classes(
-                [output_relative_class], setup, selected_task_id.item()
-            )
-        elif dataset in ["PermutedMNIST", "SplitMNIST"]:
+        if dataset in ["PermutedMNIST", "SplitMNIST"]:
             mode = "permuted" if dataset == "PermutedMNIST" else "split"
             output_absolute_class = translate_output_MNIST_classes(
                 [output_relative_class], selected_task_id.item(), mode=mode
@@ -187,32 +226,14 @@ def calculate_entropy_and_predict_classes_separately(experiment_models):
 
             # Sizes of consecutive dimensions represent:
             # number of tasks x number of samples x number of output heads
-        (lower_predicted_tasks, _) = get_task_and_class_prediction_based_on_logits(
+        
+        (predicted_tasks, predicted_classes) = get_task_and_class_prediction_based_on_logits(
                                                         all_inferenced_tasks_lower,
-                                                        hyperparameters["number_of_tasks"],
-                                                        dataset_name,
-                                                    )
-        
-        (middle_predicted_tasks, predicted_classes) = get_task_and_class_prediction_based_on_logits(
                                                         all_inferenced_tasks_middle,
-                                                        hyperparameters["number_of_tasks"],
-                                                        dataset_name,
-                                                    )
-        
-        (upper_predicted_tasks, _) = get_task_and_class_prediction_based_on_logits(
                                                         all_inferenced_tasks_upper,
                                                         hyperparameters["number_of_tasks"],
                                                         dataset_name,
                                                     )
-        
-        predicted_tasks = torch.stack([
-            lower_predicted_tasks,
-            middle_predicted_tasks,
-            upper_predicted_tasks
-        ])
-
-        predicted_tasks = predicted_tasks.mode(dim=1)
-        predicted_tasks = predicted_tasks.values
         
         predicted_classes = predicted_classes.flatten().numpy()
         task_prediction_accuracy = (

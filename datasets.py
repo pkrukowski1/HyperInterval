@@ -199,10 +199,10 @@ def set_hyperparameters(dataset,
                 'batch_sizes': [128],
                 'betas': [0.001, 0.005, 0.0005],
                 'hypernetworks_hidden_layers': [[100, 100], [25, 25]],
-                'perturbated_epsilon': [10.0, 5.0, 1.0, 0.5],
+                'perturbated_epsilon': [5.0, 1.0, 0.5],
                 'best_model_selection_method': 'val_loss',
-                'dropout_rate': [-1, 0.25, 0.5],
-                'embd_dropout_rate': [-1, 0.25],
+                'dropout_rate': [-1, 0.25],
+                'embd_dropout_rate': [-1],
                 # not for optimization
                 'seed': [1, 2, 3, 4, 5]
             }
