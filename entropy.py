@@ -1,121 +1,70 @@
-"""
-Author: Kamil Książek
-"""
-
 import torch
-import pandas as pd
+import numpy as np
 import torch.nn.functional as F
-from copy import deepcopy
+import pandas as pd
+from typing import cast
 
-from datasets import (
-    set_hyperparameters
-)
-from main import (
-    get_number_of_batch_normalization_layer,
-    set_seed
-)
-
-from evaluation import (
-    evaluate_target_network,
-    load_dataset,
-    load_pickle_file,
-    prepare_target_network
-)
-from hypnettorch.hnets import HMLP
-
-
-def prepare_and_load_weights_for_models(path_to_stored_networks,
-                                        path_to_datasets,
-                                        number_of_model,
-                                        dataset,
-                                        part=0):
+def parse_predictions(x):
     """
-    Prepare hypernetwork and target network and load stored weights
-    for both models. Also, load experiment hyperparameters.
+    Parse the output of a target network to get lower, middle and upper predictions
 
     Arguments:
     ----------
-       *path_to_stored_networks*: (string) path for all models
-                                  located in subfolders
-       *number_of_model*: (int) a number of the currently loaded model
-       *dataset*: (string) the name of the currently analyzed dataset,
-                           one of the followings: 'PermutedMNIST',
-                           'SplitMNIST' or 'CIFAR100'
-       *part*: (optional int) important for CIFAR100: 0 for ResNet,
-               1 for ZenkeNet
-
-    Returns a dictionary with the following keys:
-       *hypernetwork*: an instance of HMLP class
-       *hypernetwork_weights*: loaded weights for the hypernetwork
-       *target_network*: an instance of MLP or ResNet class
-       *target_network_weights*: loaded weights for the target network
-       *hyperparameters*: a dictionary with experiment's hyperparameters
+        *x*: (torch.Tensor) the output to be parsed
+    
+    Returns:
+    --------
+        a tuple of lower, middle and upper predictions
     """
-    assert dataset in ['PermutedMNIST', 'CIFAR100', 'SplitMNIST']
-    path_to_model = f'{path_to_stored_networks}{number_of_model}/'
-    hyperparameters = set_hyperparameters(
-        dataset,
-        grid_search=False,
-        part=part
-    )
-    seed = number_of_model + 1
-    set_seed(seed)
-    # Load proper dataset
-    dataset_tasks_list = load_dataset(
-        dataset,
-        path_to_datasets,
-        hyperparameters
-    )
-    output_shape = list(
-        dataset_tasks_list[0].get_train_outputs())[0].shape[0]
 
-    # Build target network
-    target_network = prepare_target_network(
-        hyperparameters,
-        output_shape)
-    # Build hypernetwork
-    no_of_batch_norm_layers = get_number_of_batch_normalization_layer(
-        target_network
+    return map(lambda x_: cast(torch.Tensor, x_.rename(None)), x.unbind("bounds"))  # type: ignore
+
+def translate_output_MNIST_classes(relative_labels, task, mode):
+    """
+    Translate relative labels of form {0, 1} to the real labels
+    of Split MNIST dataset.
+
+    Arguments:
+    ----------
+       *labels*: (Numpy array | list) contains labels of the form
+       *task*: (int) number of the currently calculated task,
+               starting from 0
+       *mode*: (str) "permuted" or "split", depending on the desired
+               dataset
+    """
+    assert mode in ["permuted", "split"]
+    if mode == "permuted":
+        total_no_of_classes = 100
+        no_of_classes_per_task = 10
+        # Even if the classifier indicates '0' but from the wrong task
+        # it has to get a penalty. Therefore, in Permuted MNIST there
+        # are 100 unique classes.
+    elif mode == "split":
+        total_no_of_classes = 10
+        no_of_classes_per_task = 2
+    class_orders = [i for i in range(total_no_of_classes)]
+    currently_used_classes = class_orders[
+        (no_of_classes_per_task * task) : (no_of_classes_per_task * (task + 1))
+    ]
+    y_translated = np.array(
+        [currently_used_classes[i] for i in relative_labels]
     )
-    if not hyperparameters['use_chunks']:
-        hypernetwork = HMLP(
-            target_network.param_shapes[no_of_batch_norm_layers:],
-            uncond_in_size=0,
-            cond_in_size=hyperparameters['embedding_sizes'][0],
-            activation_fn=hyperparameters['activation_function'],
-            layers=hyperparameters['hypernetworks_hidden_layers'][0],
-            num_cond_embs=hyperparameters['number_of_tasks']).to(
-                hyperparameters['device'])
-    else:
-        raise NotImplementedError
-    # Load weights
-    hnet_weights = load_pickle_file(
-        f'{path_to_model}hypernetwork_'
-        f'after_{hyperparameters["number_of_tasks"] - 1}_task.pt')
-    target_weights_before_masking = load_pickle_file(
-        f'{path_to_model}target_network_after_'
-        f'{hyperparameters["number_of_tasks"] - 1}_task.pt')
-    return {
-        'list_of_CL_tasks': dataset_tasks_list,
-        'hypernetwork': hypernetwork,
-        'hypernetwork_weights': hnet_weights,
-        'target_network': target_network,
-        'target_network_weights': target_weights_before_masking,
-        'hyperparameters': hyperparameters
-    }
+    return y_translated
 
-
-def get_task_and_class_prediction_based_on_logits(number_of_tasks,
-                                                  inferenced_logits_of_all_tasks):
+def get_task_and_class_prediction_based_on_logits(
+    inferenced_logits_of_all_tasks, setup, dataset
+):
     """
     Get task prediction for consecutive samples based on entropy values
     of the output classification layer of the target network.
 
     Arguments:
     ----------
-       *number_of_tasks*: (int) number of CL tasks
        *inferenced_logits_of_all_tasks*: shape: (number of tasks,
                             number of samples, number of output heads)
+       *setup*: (int) defines how many tasks were performed in this
+                experiment (in total)
+       *dataset*: (str) name of the dataset for proper class translation
 
     Returns:
     --------
@@ -128,26 +77,39 @@ def get_task_and_class_prediction_based_on_logits(number_of_tasks,
     predicted_classes, predicted_tasks = [], []
     number_of_samples = inferenced_logits_of_all_tasks.shape[1]
     for no_of_sample in range(number_of_samples):
-        task_entropies = torch.zeros(number_of_tasks)
+        task_entropies = torch.zeros(inferenced_logits_of_all_tasks.shape[0])
         all_task_single_output_sample = inferenced_logits_of_all_tasks[
-            :, no_of_sample, :]
-        all_task_single_output_sample = F.softmax(
-            all_task_single_output_sample, dim=1)
+            :, no_of_sample, :
+        ]
         # Calculate entropy based on results from all tasks
         for no_of_inferred_task in range(task_entropies.shape[0]):
+            softmaxed_inferred_task = F.softmax(
+                all_task_single_output_sample[no_of_inferred_task], dim=-1
+            )
             task_entropies[no_of_inferred_task] = -1 * torch.sum(
-                all_task_single_output_sample[no_of_inferred_task] *
-                torch.log(all_task_single_output_sample[no_of_inferred_task]))
+                softmaxed_inferred_task * torch.log(softmaxed_inferred_task)
+            )
         selected_task_id = torch.argmin(task_entropies)
         predicted_tasks.append(selected_task_id.item())
-        target_output = all_task_single_output_sample[selected_task_id]
-        predicted_classes.append(target_output.argmax().item())
-    predicted_tasks = torch.Tensor(predicted_tasks)
-    predicted_classes = torch.Tensor(predicted_classes)
+        target_output = all_task_single_output_sample[selected_task_id.item()]
+        output_relative_class = target_output.argmax().item()
+        if dataset == "CIFAR100_FeCAM_setup":
+            output_absolute_class = translate_output_CIFAR_classes(
+                [output_relative_class], setup, selected_task_id.item()
+            )
+        elif dataset in ["PermutedMNIST", "SplitMNIST"]:
+            mode = "permuted" if dataset == "PermutedMNIST" else "split"
+            output_absolute_class = translate_output_MNIST_classes(
+                [output_relative_class], selected_task_id.item(), mode=mode
+            )
+        else:
+            raise ValueError("Wrong name of the dataset!")
+        predicted_classes.append(output_absolute_class)
+    predicted_tasks = torch.tensor(predicted_tasks, dtype=torch.int32)
+    predicted_classes = torch.tensor(predicted_classes, dtype=torch.int32)
     return predicted_tasks, predicted_classes
 
-
-def calculate_entropy_and_predict_classes_automatically(experiment_models):
+def calculate_entropy_and_predict_classes_separately(experiment_models):
     """
     Select the target task automatically and calculate accuracy for
     consecutive samples
@@ -156,130 +118,223 @@ def calculate_entropy_and_predict_classes_automatically(experiment_models):
     ----------
     *experiment_models*: A dictionary with the following keys:
        *hypernetwork*: an instance of HMLP class
-       *hypernetwork_weights*: loaded weights for the hypernetwork
        *target_network*: an instance of MLP or ResNet class
-       *target_network_weights*: loaded weights for the target network
+       *number_of_task*: a number of currently solved task
        *hyperparameters*: a dictionary with experiment's hyperparameters
+       *dataset_CL_tasks*: list of objects containing consecutive tasks
+       *perturbated_epsilon*: a integer which is a perturbated epsilon
 
     Returns Pandas Dataframe with results for the selected model.
     """
-    hypernetwork = experiment_models['hypernetwork']
-    hypernetwork_weights = experiment_models['hypernetwork_weights']
-    target_network = experiment_models['target_network']
-    target_weights = experiment_models['target_network_weights']
-    hyperparameters = experiment_models['hyperparameters']
-    dataset_CL_tasks = experiment_models['list_of_CL_tasks']
+    hypernetwork = experiment_models["hypernetwork"]
+    target_network = experiment_models["target_network"]
+    hyperparameters = experiment_models["hyperparameters"]
+    dataset_CL_tasks = experiment_models["list_of_CL_tasks"]
+    current_task_id = experiment_models["number_of_task"]
+    dataset_name = experiment_models["hyperparameters"]["dataset"]
+    perturbated_eps = experiment_models["perturbated_epsilon"]
+    saving_folder = experiment_models["saving_folder"]
+
     hypernetwork.eval()
     target_network.eval()
 
     results = []
-    for task in range(hyperparameters['number_of_tasks']):
+    for task in range(current_task_id + 1):
 
-        gt_tasks = []
-        # Iteration over real (GT) tasks
-        currently_tested_task = dataset_CL_tasks[task]
-        input_data = currently_tested_task.get_test_inputs()
-        output_data = currently_tested_task.get_test_outputs()
-        test_input = currently_tested_task.input_to_torch_tensor(
-            input_data, hyperparameters['device'], mode='inference'
+        X_test, y_test, gt_tasks = extract_test_set_from_single_task(
+            dataset_CL_tasks, task, dataset_name, hyperparameters["device"]
         )
-        test_output = currently_tested_task.output_to_torch_tensor(
-            output_data, hyperparameters['device'], mode='inference'
-        )
-        gt_classes = test_output.max(dim=1)[1]
-        # if dataset == 'SplitMNIST':
-        #     gt_classes = [x + 2 * task for x in gt_classes]
-        target_network_type = hyperparameters['target_network']
-        gt_tasks.append([task] * output_data.shape[0])
 
         with torch.no_grad():
-            logits_outputs = []
-            for inferenced_task in range(hyperparameters['number_of_tasks']):
+            lower_logits_outputs_for_different_tasks  = []
+            middle_logits_outputs_for_different_tasks = []
+            upper_logits_outputs_for_different_tasks  = []
+
+            for inferenced_task in range(task + 1):
+                lower_weights, middle_weights, upper_weights, _ = hypernetwork.forward(cond_id=inferenced_task, 
+                                                                perturbated_eps=perturbated_eps,
+                                                                return_extended_output=True)
+                
                 # Try to predict task for all samples from "task"
-                target_weights = hypernetwork.forward(
-                    cond_id=inferenced_task,
-                    weights=hypernetwork_weights)
-               
-                logits = evaluate_target_network(
-                    target_network,
-                    test_input,
-                    target_weights,
-                    target_network_type,
-                    condition=inferenced_task
+                logits = target_network.forward(
+                    x=X_test,
+                    lower_weights=lower_weights,
+                    middle_weights=middle_weights,
+                    upper_weights=upper_weights
                 )
-                logits_outputs.append(logits)
-            all_inferenced_tasks = torch.stack(logits_outputs)
+
+                lower_logits, middle_logits, upper_logits = parse_predictions(logits)
+
+
+                lower_logits = (middle_logits + lower_logits)/2
+                upper_logits = (upper_logits + middle_logits)/2
+
+                lower_logits_outputs_for_different_tasks.append(lower_logits)
+                middle_logits_outputs_for_different_tasks.append(middle_logits)
+                upper_logits_outputs_for_different_tasks.append(upper_logits)
+
+            all_inferenced_tasks_lower = torch.stack(
+                lower_logits_outputs_for_different_tasks
+            )
+
+            all_inferenced_tasks_middle = torch.stack(
+                middle_logits_outputs_for_different_tasks
+            )
+
+            all_inferenced_tasks_upper = torch.stack(
+                upper_logits_outputs_for_different_tasks
+            )
+
             # Sizes of consecutive dimensions represent:
             # number of tasks x number of samples x number of output heads
-        predicted_tasks, predicted_classes = get_task_and_class_prediction_based_on_logits(
-            hyperparameters['number_of_tasks'],
-            all_inferenced_tasks
-        )
+        (lower_predicted_tasks, _) = get_task_and_class_prediction_based_on_logits(
+                                                        all_inferenced_tasks_lower,
+                                                        hyperparameters["number_of_tasks"],
+                                                        dataset_name,
+                                                    )
+        
+        (middle_predicted_tasks, predicted_classes) = get_task_and_class_prediction_based_on_logits(
+                                                        all_inferenced_tasks_middle,
+                                                        hyperparameters["number_of_tasks"],
+                                                        dataset_name,
+                                                    )
+        
+        (upper_predicted_tasks, _) = get_task_and_class_prediction_based_on_logits(
+                                                        all_inferenced_tasks_upper,
+                                                        hyperparameters["number_of_tasks"],
+                                                        dataset_name,
+                                                    )
+        
+        predicted_tasks = torch.stack([
+            lower_predicted_tasks,
+            middle_predicted_tasks,
+            upper_predicted_tasks
+        ])
+
+        predicted_tasks = predicted_tasks.mode(dim=1)
+        predicted_tasks = predicted_tasks.values
+        
+        predicted_classes = predicted_classes.flatten().numpy()
         task_prediction_accuracy = (
-            torch.sum(predicted_tasks == task).float() * 100. /
-            predicted_tasks.shape[0]).item()
+            torch.sum(predicted_tasks == task).float()
+            * 100.0
+            / predicted_tasks.shape[0]
+        ).item()
+        print(f"task prediction accuracy: {task_prediction_accuracy}")
         sample_prediction_accuracy = (
-            torch.sum(predicted_classes == gt_classes.cpu()).float() * 100. /
-            gt_classes.shape[0]).item()
+            np.sum(predicted_classes == y_test) * 100.0 / y_test.shape[0]
+        ).item()
+        print(f"sample prediction accuracy: {sample_prediction_accuracy}")
         results.append(
-            [task, task_prediction_accuracy, sample_prediction_accuracy])
+            [task, task_prediction_accuracy, sample_prediction_accuracy]
+        )
     results = pd.DataFrame(
-        results,
-        columns=['task', 'task_prediction_acc', 'class_prediction_acc']
+        results, columns=["task", "task_prediction_acc", "class_prediction_acc"]
     )
-    results.to_csv(f'{path_to_stored_networks}entropy_statistics_{number_of_model}.csv',
-                   sep=';')
+    results.to_csv(
+        f"{saving_folder}/entropy_statistics.csv", sep=";"
+    )
     return results
 
 
-if __name__ == "__main__":
-    dataset = 'PermutedMNIST'
-    # Options for *dataset*:
-    # 'PermutedMNIST', 'SplitMNIST'. 'CIFAR100'
-    if dataset == 'PermutedMNIST':
-        path_to_stored_networks = (
-            f'./Results/permuted_mnist_single_run/2023-12-06_00-22-38/'
-        )
-        part = 0
-    elif dataset == 'SplitMNIST':
-        path_to_stored_networks = (
-            './Results/SplitMNIST/best_models/ICLR_models/'
-        )
-        part = 0
-    elif dataset == 'CIFAR100':
-        # ResNet
-        path_to_stored_networks = (
-            './Results/CIFAR-100/ICLR_models_ResNet/'
-        )
-        part = 0
-        # ZenkeNet
-        # path_to_stored_networks = (
-        #     './Results/'
-        #     'CIFAR-100/ICLR_models_ZenkeNet/'
-        # )
-        # part = 1
-    path_to_datasets = './Data/'
-    number_of_model = 0
-    summary_of_results = []
 
-    experiment_models = prepare_and_load_weights_for_models(
-        path_to_stored_networks,
-        path_to_datasets,
-        number_of_model,
-        dataset,
-        part=part
+def extract_test_set_from_single_task(
+    dataset_CL_tasks, no_of_task, dataset, device
+):
+    """
+    Extract test samples dedicated for a selected task
+    and change relative output classes into absolute classes.
+
+    Arguments:
+    ----------
+       *dataset_CL_tasks*: list of objects containing consecutive tasks
+       *no_of_task*: (int) represents number of the currently analyzed task
+       *dataset*: (str) defines name of the dataset used: 'PermutedMNIST',
+                  'SplitMNIST' or 'CIFAR100_FeCAM_setup'
+       *device*: (str) defines whether CPU or GPU will be used
+
+    Returns:
+    --------
+       *X_test*: (torch.Tensor) represents input samples
+       *gt_classes*: (Numpy array) represents absolute classes for *X_test*
+       *gt_tasks*: (list) represents number of task for corresponding samples
+    """
+    tested_task = dataset_CL_tasks[no_of_task]
+    input_data = tested_task.get_test_inputs()
+    output_data = tested_task.get_test_outputs()
+    X_test = tested_task.input_to_torch_tensor(
+        input_data, device, mode="inference"
     )
-    results = calculate_entropy_and_predict_classes_automatically(
-        experiment_models)
-    summary_of_results.append(
-        [number_of_model,
-            results['task_prediction_acc'].mean(),
-            results['class_prediction_acc'].mean()])
-    summary_of_results = pd.DataFrame(
-        summary_of_results,
-        columns=['no_of_model',
-                'mean_model_task_prediction_accuracy',
-                'mean_model_class_prediction_accuracy']
+    test_output = tested_task.output_to_torch_tensor(
+        output_data, device, mode="inference"
     )
-    summary_of_results.to_csv(f'{path_to_stored_networks}entropy_mean_results.csv',
-                        sep=';')
+    gt_classes = test_output.max(dim=1)[1]
+    if dataset in ["PermutedMNIST", "SplitMNIST"]:
+        mode = "permuted" if dataset == "PermutedMNIST" else "split"
+        gt_classes = translate_output_MNIST_classes(
+            gt_classes, task=no_of_task, mode=mode
+        )
+    else:
+        raise ValueError("Wrong name of the dataset!")
+    gt_tasks = [no_of_task for _ in range(output_data.shape[0])]
+    return X_test, gt_classes, gt_tasks
+
+
+def translate_output_CIFAR_classes(labels, setup, task):
+    """
+    Translate labels of form {0, 1, ..., N-1} to the real labels
+    of CIFAR100 dataset.
+
+    Arguments:
+    ----------
+       *labels*: (Numpy array | list) contains labels of the form {0, 1, ..., N-1}
+                 where N is the the number of classes in a single task
+       *setup*: (int) defines how many tasks were created in this
+                training session
+       *task*: (int) number of the currently calculated task
+    Returns:
+    --------
+       A numpy array of the same shape like *labels* but with proper
+       class labels
+    """
+    assert setup in [5, 6, 11, 21]
+    # 5 tasks: 20 classes in each task
+    # 6 tasks: 50 initial classes + 5 incremental tasks per 10 classes
+    # 11 tasks: 50 initial classes + 10 incremental tasks per 5 classes
+    # 21 tasks: 40 initial classes + 20 incremental tasks per 3 classes
+    class_orders = [
+        87, 0, 52, 58, 44, 91, 68, 97, 51, 15,
+        94, 92, 10, 72, 49, 78, 61, 14, 8, 86,
+        84, 96, 18, 24, 32, 45, 88, 11, 4, 67,
+        69, 66, 77, 47, 79, 93, 29, 50, 57, 83,
+        17, 81, 41, 12, 37, 59, 25, 20, 80, 73,
+        1, 28, 6, 46, 62, 82, 53, 9, 31, 75,
+        38, 63, 33, 74, 27, 22, 36, 3, 16, 21,
+        60, 19, 70, 90, 89, 43, 5, 42, 65, 76,
+        40, 30, 23, 85, 2, 95, 56, 48, 71, 64,
+        98, 13, 99, 7, 34, 55, 54, 26, 35, 39
+    ]
+    if setup in [6, 11]:
+        no_of_initial_cls = 50
+    elif setup == 21:
+        no_of_initial_cls = 40
+    else:
+        no_of_initial_cls = 20
+    if task == 0:
+        currently_used_classes = class_orders[:no_of_initial_cls]
+    else:
+        if setup == 6:
+            no_of_incremental_cls = 10
+        elif setup == 11:
+            no_of_incremental_cls = 5
+        elif setup == 21:
+            no_of_incremental_cls = 3
+        else:
+            no_of_incremental_cls = 20
+        currently_used_classes = class_orders[
+            (no_of_initial_cls + no_of_incremental_cls * (task - 1)) : (
+                no_of_initial_cls + no_of_incremental_cls * task
+            )
+        ]
+    y_translated = np.array([currently_used_classes[i] for i in labels])
+    return y_translated

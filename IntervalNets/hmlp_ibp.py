@@ -190,13 +190,12 @@ class HMLP_IBP(HMLP, HyperNetInterface):
 
         ### Split output into target shapes ###
         ret = self._flat_to_ret_format(h, ret_format)
+
         if return_extended_output:
             ret_zl = self._flat_to_ret_format(z_l, ret_format)
             ret_zu = self._flat_to_ret_format(z_u, ret_format)
-
-            # Make a copy of the radii and freeze
-            radii = eps.detach().clone()
-            radii = self._flat_to_ret_format(radii, ret_format)  # Calculate epsilon for each weight of a target network
+            # radii  = self._flat_to_ret_format(eps, ret_format)  # Calculate epsilon for each weight of a target network
+            radii = eps
 
             return ret_zl, ret, ret_zu, radii
         else:
