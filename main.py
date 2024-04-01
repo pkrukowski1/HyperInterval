@@ -19,7 +19,6 @@ from datetime import datetime
 from itertools import product
 from loss_functions import IBP_Loss
 from IntervalNets.hmlp_ibp import HMLP_IBP
-from entropy import calculate_entropy_and_predict_classes_separately
 from datasets import (
     set_hyperparameters,
     prepare_split_cifar100_tasks,
@@ -277,6 +276,83 @@ def calculate_accuracy(data,
         accuracy = (torch.sum(gt_classes == predictions, dtype=torch.float32) /
                     gt_classes.numel()) * 100.
     return accuracy
+
+def evaluate_previous_tasks_for_intersection(hypernetwork,
+                            target_network,
+                            common_emb,
+                            common_radii,
+                            dataframe_results,
+                            list_of_permutations,
+                            parameters):
+    """
+    Evaluate the target network according to the weights generated
+    by the hypernetwork for all previously trained tasks for intersection
+    of tasks' embeddings.
+    
+    Arguments:
+    ----------
+      *hypernetwork* (hypnettorch.hnets module, e.g. mlp_hnet.MLP)
+                     a hypernetwork that generates weights for the target
+                     network
+      *target_network* (hypnettorch.mnets module, e.g. mlp.MLP)
+                       a target network that finally will perform
+                       classification
+      *common_emb* (torch.Tensor) an embedding which is produced as a middle
+                    of intervals' intersection for already learned tasks
+      *common_radii* (torch.Tensor) radii around the common_embedding
+      *dataframe_results* (Pandas Dataframe) stores results; contains
+                          following columns: 'after_learning_of_task',
+                          'tested_task' and 'accuracy'
+      *list_of_permutations*: (hypnettorch.data module), e.g. in the case
+                              of PermutedMNIST it will be
+                              special.permuted_mnist.PermutedMNISTList
+      *parameters* a dictionary containing the following keys:
+        -device- string: 'cuda' or 'cpu', defines in which device calculations
+                 will be performed
+        -use_batch_norm_memory- Boolean: defines whether stored weights
+                                of the batch normalization layer should be used
+                                If True then *number_of_task* has to be given
+        -number_of_task- int/None: gives an information which task is currently
+                         solved
+
+    Returns:
+    --------
+      *dataframe_results* (Pandas Dataframe) a dataframe updated with
+                          the calculated results
+    """
+    # Calculate accuracy for each previously trained task
+    # as well as for the last trained task
+    hypernetwork.eval()
+    target_network.eval()
+
+    inter_target_weights = hypernetwork.forward(cond_input = common_emb.view(1, -1),
+                                                common_radii=common_radii,
+                                                return_extended_output=False)
+
+    for task in range(parameters['number_of_task'] + 1):
+        # Target entropy calculation should be included here: hypernetwork has to be inferred
+        # for each task (together with the target network) and the task_id with the lowest entropy
+        # has to be chosen
+        # Arguments of the function: list of permutations, hypernetwork, sparsity, target network
+        # output: task id
+        currently_tested_task = list_of_permutations[task]
+        
+        accuracy = calculate_accuracy(
+            currently_tested_task,
+            target_network,
+            inter_target_weights,
+            parameters=parameters,
+            evaluation_dataset='test'
+        )
+        result = {
+            'after_learning_of_task': parameters['number_of_task'],
+            'tested_task': task,
+            'accuracy': accuracy.cpu().item()
+        }
+        print(f'Accuracy for task {task}: {accuracy}%.')
+        dataframe_results = dataframe_results.append(
+            result, ignore_index=True)
+    return dataframe_results
 
 
 def evaluate_previous_tasks(hypernetwork,
@@ -870,7 +946,7 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
     dataframe = pd.DataFrame(columns=[
         'after_learning_of_task', 'tested_task', 'accuracy'])
     
-    results_from_entropy = pd.DataFrame(columns=[
+    results_from_interval_intersection = pd.DataFrame(columns=[
                     'after_learning_of_task', 'tested_task', 'accuracy'])
 
     if (parameters['target_network'] == 'ResNet') and \
@@ -943,17 +1019,42 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
                          sep=';')
         
 
-        experiment_models = {
-            'hypernetwork': hypernetwork,
-            'target_network': target_network,
-            'hyperparameters': hyperparameters,
-            'saving_folder': parameters["saving_folder"],
-            'number_of_task': no_of_task,
-            'list_of_CL_tasks': dataset_list_of_tasks,
-            'perturbated_epsilon': parameters["perturbated_epsilon"]
-        }
-        
-        results_from_entropy = calculate_entropy_and_predict_classes_separately(experiment_models)
+        with torch.no_grad():
+            
+            if no_of_task == 0:
+                common_emb = calculate_interval_intersection(hypernetwork=hypernetwork,
+                                                                parameters=parameters,
+                                                                current_task_id=no_of_task)
+                common_radii = hypernetwork.perturbated_eps_T[0].clone()
+                common_radii = parameters['perturbated_epsilon'] * F.softmax(common_radii, dim=-1)
+            else:
+                zl_common_emb, common_emb, zu_common_emb = calculate_interval_intersection(hypernetwork=hypernetwork,
+                                                                                            parameters=parameters,
+                                                                                            current_task_id=no_of_task)
+                common_radii = torch.zeros_like(common_emb)
+                
+            # Evaluate previous tasks for intersection
+            results_from_interval_intersection = evaluate_previous_tasks_for_intersection(
+                                                    hypernetwork,
+                                                    target_network,
+                                                    common_emb,
+                                                    common_radii,
+                                                    results_from_interval_intersection,
+                                                    dataset_list_of_tasks,
+                                                    parameters={
+                                                        'device': parameters['device'],
+                                                        'use_batch_norm_memory': use_batch_norm_memory,
+                                                        'number_of_task': no_of_task,
+                                                        'perturbated_epsilon': parameters['perturbated_epsilon']
+                                                    }
+                                                )
+            results_from_interval_intersection = results_from_interval_intersection.astype({
+                                                    'after_learning_of_task': 'int',
+                                                    'tested_task': 'int'
+                                                })
+            results_from_interval_intersection.to_csv(f'{parameters["saving_folder"]}/'
+                                                f'results_intersection.csv',
+                                                sep=';')
                 
 
         # Plot intervals over tasks' embeddings plot
