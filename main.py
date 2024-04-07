@@ -628,7 +628,8 @@ def train_single_task(hypernetwork,
         # validation accuracy.
         best_hypernetwork = deepcopy(hypernetwork).to(parameters['device'])
         best_target_network = deepcopy(target_network).to(parameters['device'])
-        best_val_accuracy = 0.
+        # best_val_accuracy = 0.
+        best_val_loss = 1e15
         
     elif parameters['best_model_selection_method'] != 'last_model':
         raise ValueError('Wrong value of best_model_selection_method parameter!')
@@ -638,10 +639,10 @@ def train_single_task(hypernetwork,
     target_network.train()
     print(f'task: {current_no_of_task}')
     if current_no_of_task > 0:
-        middle_reg_targets = hreg.get_current_targets(
-                                task_id=current_no_of_task,
-                                hnet=hypernetwork,
-                                eps=parameters["perturbated_epsilon"])
+        lower_reg_targets, middle_reg_targets, upper_reg_targets = hreg.get_current_targets(
+                                                                            task_id=current_no_of_task,
+                                                                            hnet=hypernetwork,
+                                                                            eps=parameters["perturbated_epsilon"])
         previous_hnet_theta = None
         previous_hnet_embeddings = None
 
@@ -748,11 +749,11 @@ def train_single_task(hypernetwork,
         if current_no_of_task > 0:
             loss_regularization = hreg.calc_fix_target_reg(
                 hypernetwork, current_no_of_task,
-                targets=middle_reg_targets,
+                lower_targets=lower_reg_targets,
+                middle_targets=middle_reg_targets,
+                upper_targets=upper_reg_targets,
                 mnet=target_network, prev_theta=previous_hnet_theta,
                 prev_task_embs=previous_hnet_embeddings,
-                inds_of_out_heads=None,
-                batch_size=-1,
                 eps=parameters["perturbated_epsilon"]
             )
 
@@ -842,8 +843,10 @@ def train_single_task(hypernetwork,
             # than previously
             if parameters['best_model_selection_method'] == 'val_loss' and \
                 round(eps, 0) == parameters['perturbated_epsilon']:
-                if accuracy > best_val_accuracy:
-                    best_val_accuracy = accuracy
+                # if accuracy > best_val_accuracy:
+                if loss.item() < best_val_loss:
+                    # best_val_accuracy = accuracy
+                    best_val_loss = loss.item()
                     best_hypernetwork = deepcopy(hypernetwork)
                     best_target_network = deepcopy(target_network)
             
