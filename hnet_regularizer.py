@@ -160,23 +160,13 @@ def calc_fix_target_reg(hnet, task_id, eps, lower_targets=None, middle_targets=N
 
     for i in ids_to_reg:
     
-        curr_embd  = hnet.conditional_params[i]
-        curr_radii = eps * F.softmax(
-            hnet.perturbated_eps_T[i], dim=-1
-        )
+        lower_weights_predicted, middle_weights_predicted, upper_weights_predicted, _ = hnet.forward(
+                                                                                                cond_id=i,
+                                                                                                weights=weights,
+                                                                                                perturbated_eps=eps,
+                                                                                                return_extended_output=True
+                                                                                            )
 
-        lower_logit = curr_embd - curr_radii
-        upper_logit = curr_embd + curr_radii
-
-        lower_weights_predicted = hnet.forward(cond_input=lower_logit.view(1, -1), 
-                                               weights=weights, 
-                                               common_radii=torch.zeros_like(lower_logit))
-        
-        middle_weights_predicted = hnet.forward(cond_id=i, weights=weights, perturbated_eps=eps)
-
-        upper_weights_predicted = hnet.forward(cond_input=upper_logit.view(1, -1), 
-                                               weights=weights, 
-                                               common_radii=torch.zeros_like(upper_logit))
 
         lower_target  = lower_targets[i]
         middle_target = middle_targets[i]
