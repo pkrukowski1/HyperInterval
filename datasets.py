@@ -199,7 +199,6 @@ def set_hyperparameters(dataset,
                 'learning_rates': [0.001, 0.01],
                 'batch_sizes': [128],
                 'betas': [0.01, 0.001, 0.0001],
-                'rhos': [0.1, 0.01, 0.001],
                 'hypernetworks_hidden_layers': [[100, 100], [25, 25]],
                 'perturbated_epsilon': [5.0, 1.0, 0.5],
                 'best_model_selection_method': 'val_loss',
@@ -226,8 +225,7 @@ def set_hyperparameters(dataset,
                 'learning_rates': [0.001],
                 'batch_sizes': [128],
                 'betas': [0.005],
-                'rhos': [0.1],
-                'perturbated_epsilon': [10.0],
+                'perturbated_epsilon': [24.0],
                 'hypernetworks_hidden_layers': [[100, 100]],
                 'dropout_rate': [-1],
                 'embd_dropout_rate': [-1],
@@ -253,7 +251,7 @@ def set_hyperparameters(dataset,
         # Directly related to the MNIST dataset
         hyperparams['padding'] = 2
         hyperparams['shape'] = (28 + 2 * hyperparams['padding'])**2
-        hyperparams['number_of_tasks'] = 10
+        hyperparams['number_of_tasks'] = 3
         hyperparams['augmentation'] = False
 
 
@@ -396,7 +394,6 @@ def set_hyperparameters(dataset,
                 'learning_rates': [0.001],
                 'batch_sizes': [64],
                 'betas': [0.001],
-                # 'rhos': [0.1],
                 'perturbated_epsilon': [10.0],
                 'dropout_rate': [-1],
                 'embd_dropout_rate': [-1],

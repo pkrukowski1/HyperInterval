@@ -139,17 +139,17 @@ def calculate_interval_intersection(hypernetwork, parameters, current_task_id):
         eps = parameters["perturbated_epsilon"]
 
         if current_task_id == 0:
-            first_emb = hypernetwork.conditional_params[0].clone()
+            first_emb = torch.cos(hypernetwork.conditional_params[0])
 
             return first_emb
         else:
             
             radii = torch.stack([
-                eps * F.softmax(hypernetwork.perturbated_eps_T[i].clone(), dim=-1) for i in range(current_task_id+1)
+                eps * F.softmax(hypernetwork.perturbated_eps_T[i], dim=-1) for i in range(current_task_id+1)
             ], dim=0)
 
             z_temp = torch.stack([
-                hypernetwork.conditional_params[i].clone() for i in range(current_task_id+1)
+                torch.cos(hypernetwork.conditional_params[i]) for i in range(current_task_id+1)
             ], dim=0)
             
             zl_inter_emb, zu_inter_emb = intersection_of_embeds(z_temp - radii, z_temp + radii)
@@ -327,7 +327,8 @@ def evaluate_previous_tasks_for_intersection(hypernetwork,
 
     inter_target_weights = hypernetwork.forward(cond_input = common_emb.view(1, -1),
                                                 common_radii=common_radii,
-                                                return_extended_output=False)
+                                                return_extended_output=False,
+                                                common_emb=True)
 
     for task in range(parameters['number_of_task'] + 1):
         # Target entropy calculation should be included here: hypernetwork has to be inferred
@@ -510,11 +511,11 @@ def plot_intervals_around_embeddings(hypernetwork,
         cond_params  = hypernetwork.conditional_params
 
         embds_detached = [
-            cond_params[i].clone() for i in range(no_tasks)
+            torch.cos(cond_params[i]) for i in range(no_tasks)
         ]
 
         radii_detached = [
-            radii_params[i].clone() for i in range(no_tasks)
+            parameters["perturbated_epsilon"] * F.softmax(radii_params[i], dim=-1) for i in range(no_tasks)
         ]
         
         # Create a plot
@@ -628,8 +629,7 @@ def train_single_task(hypernetwork,
         # validation accuracy.
         best_hypernetwork = deepcopy(hypernetwork).to(parameters['device'])
         best_target_network = deepcopy(target_network).to(parameters['device'])
-        # best_val_accuracy = 0.
-        best_val_loss = 1e15
+        best_val_accuracy = 0.
         
     elif parameters['best_model_selection_method'] != 'last_model':
         raise ValueError('Wrong value of best_model_selection_method parameter!')
@@ -696,26 +696,10 @@ def train_single_task(hypernetwork,
 
         # Get weights, lower weights, upper weights and predicted radii
         # returned by the hypernetwork
-        lower_weights, target_weights, upper_weights, radii = hypernetwork.forward(cond_id=current_no_of_task, 
+        lower_weights, target_weights, upper_weights, _ = hypernetwork.forward(cond_id=current_no_of_task, 
                                                                                 return_extended_output=True,
                                                                                 perturbated_eps=eps)
-    
-        # Even if batch normalization layers are applied, statistics
-        # for the last saved tasks will be applied so there is no need to
-        # give 'current_no_of_task' as a value for the 'condition' argument.
 
-        # lower_pred = target_network.forward(x=tensor_input,
-        #                                     weights=lower_weights)
-        
-        # middle_pred = target_network.forward(x=tensor_input,
-        #                                     weights=target_weights)
-        
-        # upper_pred = target_network.forward(x=tensor_input,
-        #                                     weights=upper_weights)
-
-
-        # lower_pred, middle_pred = torch.minimum(lower_pred, middle_pred), torch.maximum(lower_pred, middle_pred)
-        # middle_pred, upper_pred = torch.minimum(upper_pred, middle_pred), torch.maximum(upper_pred, middle_pred)
 
         predictions = target_network.forward(x=tensor_input,
                                              upper_weights=upper_weights,
@@ -744,7 +728,6 @@ def train_single_task(hypernetwork,
         worst_case_error = criterion.worst_case_error
             
         loss_regularization = 0.
-        loss_embeddings = 0.
 
         if current_no_of_task > 0:
             loss_regularization = hreg.calc_fix_target_reg(
@@ -756,22 +739,11 @@ def train_single_task(hypernetwork,
                 prev_task_embs=previous_hnet_embeddings,
                 eps=parameters["perturbated_epsilon"]
             )
-
-            for prev_task_id in range(current_no_of_task):
-
-                prev_embd  = hypernetwork.conditional_params[prev_task_id]
-                prev_radii = parameters["perturbated_epsilon"] * F.softmax(hypernetwork.perturbated_eps_T[prev_task_id], dim=-1)
-                prev_radii_inv = 1 / (prev_radii + 1e-10)
-
-                curr_embd = hypernetwork.conditional_params[current_no_of_task]
-
-                loss_embeddings = loss_embeddings + (prev_radii_inv * (curr_embd - prev_embd)).pow(2).sum()
         
 
         # Calculate total loss
         loss = loss_current_task + \
-            parameters['beta'] * loss_regularization / max(1, current_no_of_task) + \
-            parameters['rho'] * loss_embeddings
+            parameters['beta'] * loss_regularization / max(1, current_no_of_task)
         
         # Save total loss to file
         if iteration > 0 or current_no_of_task > 0:
@@ -843,10 +815,8 @@ def train_single_task(hypernetwork,
             # than previously
             if parameters['best_model_selection_method'] == 'val_loss' and \
                 round(eps, 0) == parameters['perturbated_epsilon']:
-                # if accuracy > best_val_accuracy:
-                if loss.item() < best_val_loss:
-                    # best_val_accuracy = accuracy
-                    best_val_loss = loss.item()
+                if accuracy > best_val_accuracy:
+                    best_val_accuracy = accuracy
                     best_hypernetwork = deepcopy(hypernetwork)
                     best_target_network = deepcopy(target_network)
             
@@ -1159,6 +1129,11 @@ def main_running_experiments(path_to_datasets,
     load_path = (f'{parameters["saving_folder"]}/'
                  f'results.csv')
     plot_heatmap(load_path)
+
+    # Plot heatmap for results intersection
+    load_path = (f'{parameters["saving_folder"]}/'
+                 f'results_intersection.csv')
+    plot_heatmap(load_path)
     
     return hypernetwork, target_network, dataframe
 
@@ -1203,7 +1178,6 @@ if __name__ == "__main__":
                 hyperparameters["perturbated_epsilon"],
                 hyperparameters["dropout_rate"],
                 hyperparameters["embd_dropout_rate"],
-                hyperparameters["rhos"],
                 hyperparameters["custom_init"])
     ):
         embedding_size = elements[0]
@@ -1214,8 +1188,7 @@ if __name__ == "__main__":
         perturbated_eps = elements[6]
         dropout_rate = elements[7]
         embd_dropout_rate = elements[8]
-        rho = elements[9]
-        custom_init = elements[10]
+        custom_init = elements[9]
         
         # Of course, seed is not optimized but it is easier to prepare experiments
         # for multiple seeds in such a way
@@ -1258,7 +1231,6 @@ if __name__ == "__main__":
             'kappa': hyperparameters["kappa"],
             'dropout_rate': dropout_rate,
             'embd_dropout_rate': embd_dropout_rate,
-            'rho': rho,
             'custom_init': custom_init
         }
 

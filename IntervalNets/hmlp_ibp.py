@@ -43,17 +43,14 @@ class HMLP_IBP(HMLP, HyperNetInterface):
             assert embd_dropout_rate >= 0 and embd_dropout_rate <= 1, "Dropout rate should be contained in the [0,1] interval"
             self.embd_dropout = nn.Dropout(p = embd_dropout_rate)
         
-        ### Create learnable epsilons which are summed up to the constant value
-        self._perturbated_eps_T = nn.ParameterList()
+        ### Create epsilons which are summed up to the constant value
+        self._perturbated_eps_T = []
 
         for _ in range(num_cond_embs):
-            self._perturbated_eps_T.append(nn.Parameter( \
-                                    data=torch.Tensor(cond_in_size), 
-                                    requires_grad=True)).to(self._device)
+            self._perturbated_eps_T.append(
+                F.softmax(torch.ones(self._cond_in_size), dim=-1).to(self._device)
+                )
             
-            torch.nn.init.normal_(self._perturbated_eps_T[-1], mean=0.,
-                                    std=1.)
-
         self._is_properly_setup()
     
     @property
@@ -62,17 +59,15 @@ class HMLP_IBP(HMLP, HyperNetInterface):
     
     def detach_tensor(self, idx):
         """
-        This method detaches an embedding and the corresponding
-        learnable radii tensor from the computation graph
+        This method detaches an embedding from the computation graph
         """
         self.conditional_params[idx].requires_grad_(False)
-        self._perturbated_eps_T[idx].requires_grad_(False)
     
 
     def forward(self, uncond_input=None, cond_input=None, cond_id=None,
                 weights=None, distilled_params=None, condition=None,
                 ret_format='squeezed', return_extended_output = False,
-                perturbated_eps = None, common_radii=None):
+                perturbated_eps = None, common_radii=None, common_emb=False):
         """Compute the weights of a target network.
 
         Args:
@@ -125,7 +120,7 @@ class HMLP_IBP(HMLP, HyperNetInterface):
             eps = eps.to(self._device)
         elif isinstance(cond_id, list) and cond_id is not None:
             eps = torch.stack([
-                perturbated_eps * F.softmax(self._perturbated_eps_T[i].detach(), dim=-1) for i in range(len(cond_id))
+                perturbated_eps * F.softmax(self._perturbated_eps_T[i], dim=-1) for i in range(len(cond_id))
             ], dim=0)
 
             eps = eps.to(self._device)
@@ -166,6 +161,9 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         
         if self.embd_dropout_rate != -1:
             h = self.embd_dropout(h)
+        
+        # Apply cos transformation
+        h = cond_input if common_emb else torch.cos(h)
 
         for i in range(len(fc_weights)):
             last_layer = i == (len(fc_weights) - 1)
