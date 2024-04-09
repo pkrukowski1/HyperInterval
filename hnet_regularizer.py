@@ -190,7 +190,7 @@ def calc_fix_target_reg(hnet, task_id, eps, lower_targets=None, middle_targets=N
         middle_reg += middle_reg_i
         lower_reg  += lower_reg_i
 
-    return (upper_reg_i + middle_reg_i + lower_reg_i) / (3*num_regs)
+    return (upper_reg + middle_reg + lower_reg) / (3*num_regs)
 
 
 if __name__ == '__main__':
