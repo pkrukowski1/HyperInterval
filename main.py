@@ -136,10 +136,12 @@ def calculate_interval_intersection(hypernetwork, parameters, current_task_id):
 
     with torch.no_grad():
 
-        eps = parameters["perturbated_epsilon"]
+        eps    = parameters["perturbated_epsilon"]
+        n_embs = parameters["embedding_size"]
+        sigma  = 0.5 * eps / n_embs
 
         if current_task_id == 0:
-            first_emb = torch.cos(hypernetwork.conditional_params[0])
+            first_emb = sigma * torch.cos(hypernetwork.conditional_params[0])
 
             return first_emb
         else:
@@ -149,7 +151,7 @@ def calculate_interval_intersection(hypernetwork, parameters, current_task_id):
             ], dim=0)
 
             z_temp = torch.stack([
-                torch.cos(hypernetwork.conditional_params[i]) for i in range(current_task_id+1)
+                sigma * torch.cos(hypernetwork.conditional_params[i]) for i in range(current_task_id+1)
             ], dim=0)
             
             zl_inter_emb, zu_inter_emb = intersection_of_embeds(z_temp - radii, z_temp + radii)
@@ -280,7 +282,6 @@ def calculate_accuracy(data,
 def evaluate_previous_tasks_for_intersection(hypernetwork,
                             target_network,
                             common_emb,
-                            common_radii,
                             dataframe_results,
                             list_of_permutations,
                             parameters):
@@ -299,7 +300,6 @@ def evaluate_previous_tasks_for_intersection(hypernetwork,
                        classification
       *common_emb* (torch.Tensor) an embedding which is produced as a middle
                     of intervals' intersection for already learned tasks
-      *common_radii* (torch.Tensor) radii around the common_embedding
       *dataframe_results* (Pandas Dataframe) stores results; contains
                           following columns: 'after_learning_of_task',
                           'tested_task' and 'accuracy'
@@ -325,8 +325,8 @@ def evaluate_previous_tasks_for_intersection(hypernetwork,
     hypernetwork.eval()
     target_network.eval()
 
-    inter_target_weights = hypernetwork.forward(cond_input = common_emb.view(1, -1),
-                                                common_radii=common_radii,
+    inter_target_weights = hypernetwork.forward(cond_input=common_emb.view(1, -1),
+                                                perturbated_eps=parameters["perturbated_epsilon"],
                                                 return_extended_output=False,
                                                 common_emb=True)
 
@@ -505,17 +505,19 @@ def plot_intervals_around_embeddings(hypernetwork,
 
     no_tasks = current_task + 1 if current_task is not None else parameters["number_of_tasks"]
     n_embs   = parameters["embedding_size"]
+    eps      = parameters["perturbated_epsilon"]
+    sigma    = 0.5 * eps / n_embs
 
     with torch.no_grad():
         radii_params = hypernetwork.perturbated_eps_T
         cond_params  = hypernetwork.conditional_params
 
         embds_detached = [
-            torch.cos(cond_params[i]) for i in range(no_tasks)
+            sigma * torch.cos(cond_params[i]) for i in range(no_tasks)
         ]
 
         radii_detached = [
-            parameters["perturbated_epsilon"] * F.softmax(radii_params[i], dim=-1) for i in range(no_tasks)
+            eps * F.softmax(radii_params[i], dim=-1) for i in range(no_tasks)
         ]
         
         # Create a plot
@@ -998,20 +1000,16 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
                 common_emb = calculate_interval_intersection(hypernetwork=hypernetwork,
                                                                 parameters=parameters,
                                                                 current_task_id=no_of_task)
-                common_radii = hypernetwork.perturbated_eps_T[0].clone()
-                common_radii = parameters['perturbated_epsilon'] * F.softmax(common_radii, dim=-1)
             else:
                 zl_common_emb, common_emb, zu_common_emb = calculate_interval_intersection(hypernetwork=hypernetwork,
                                                                                             parameters=parameters,
                                                                                             current_task_id=no_of_task)
-                common_radii = torch.zeros_like(common_emb)
                 
             # Evaluate previous tasks for intersection
             results_from_interval_intersection = evaluate_previous_tasks_for_intersection(
                                                     hypernetwork,
                                                     target_network,
                                                     common_emb,
-                                                    common_radii,
                                                     results_from_interval_intersection,
                                                     dataset_list_of_tasks,
                                                     parameters={

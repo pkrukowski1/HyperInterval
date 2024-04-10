@@ -67,7 +67,7 @@ class HMLP_IBP(HMLP, HyperNetInterface):
     def forward(self, uncond_input=None, cond_input=None, cond_id=None,
                 weights=None, distilled_params=None, condition=None,
                 ret_format='squeezed', return_extended_output = False,
-                perturbated_eps = None, common_radii=None, common_emb=False):
+                perturbated_eps = None, common_emb=False):
         """Compute the weights of a target network.
 
         Args:
@@ -81,7 +81,6 @@ class HMLP_IBP(HMLP, HyperNetInterface):
                                             lower target weight, upper target weights and predicted radii 
                                             of intervals
             perturbated_eps: (float)
-            common_radii: (torch.Tensor) radii of common embedding
 
         Returns:
             (list or torch.Tensor): See docstring of method
@@ -96,8 +95,6 @@ class HMLP_IBP(HMLP, HyperNetInterface):
 
         ### Prepare hypernet input ###
         assert self._uncond_in_size == 0 or uncond_input is not None
-        assert (common_radii is not None and perturbated_eps is None) or \
-                (common_radii is None and perturbated_eps is not None)
         assert self._cond_in_size == 0 or cond_input is not None
         if uncond_input is not None:
             assert len(uncond_input.shape) == 2 and \
@@ -117,20 +114,16 @@ class HMLP_IBP(HMLP, HyperNetInterface):
             eps = perturbated_eps * F.softmax(
                     self._perturbated_eps_T[cond_id],
                     dim=-1)
-            eps = eps.to(self._device)
+            
         elif isinstance(cond_id, list) and cond_id is not None:
             eps = torch.stack([
                 perturbated_eps * F.softmax(self._perturbated_eps_T[i], dim=-1) for i in range(len(cond_id))
             ], dim=0)
 
-            eps = eps.to(self._device)
-
-            print(f"Radii list shape: {eps.shape}")
         else:
-            assert common_radii is not None, "Please calculate radii of the intervals' intersections"
-
-            eps = common_radii
-            eps = eps.to(self._device)
+            eps = perturbated_eps * F.softmax(torch.ones_like(h), dim=-1)
+        
+        eps = eps.to(self._device)
 
         ### Extract layer weights ###
         bn_scales  = []
@@ -163,7 +156,8 @@ class HMLP_IBP(HMLP, HyperNetInterface):
             h = self.embd_dropout(h)
         
         # Apply cos transformation
-        h = cond_input if common_emb else torch.cos(h)
+        sigma = 0.5 * perturbated_eps / self._cond_in_size
+        h = h if common_emb else sigma * torch.cos(h)
 
         for i in range(len(fc_weights)):
             last_layer = i == (len(fc_weights) - 1)
