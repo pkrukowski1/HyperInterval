@@ -258,7 +258,7 @@ def set_hyperparameters(dataset,
     elif dataset == 'CIFAR100':
         if grid_search:
             hyperparams = {
-                'seed': [1,2,3,4,5],
+                'seed': [1],
                 'embedding_sizes': [48],
                 'betas': [0.01, 0.1, 1.0],
                 'learning_rates': [0.001],
@@ -274,7 +274,7 @@ def set_hyperparameters(dataset,
                 'target_network': 'ZenkeNet',
                 'use_chunks': False,
                 'number_of_epochs': 200,
-                'augmentation': True
+                'augmentation': False
             }
             if part == 0:
                 # Use default grid search hyperparameters
@@ -308,6 +308,7 @@ def set_hyperparameters(dataset,
             # single run experiment
             hyperparams = {
                 'seed': [1],
+                'custom_init': [False],
                 'embedding_sizes': [48],
                 'betas': [0.01],
                 'batch_sizes': [32],
@@ -316,14 +317,14 @@ def set_hyperparameters(dataset,
                 'hypernetworks_hidden_layers': [[100]],
                 'dropout_rate': [-1, 0.25, 0.5],
                 'embd_dropout_rate': [-1, 0.25],
-                'use_batch_norm': True,
+                'use_batch_norm': False,
                 'use_chunks': False,
                 'resnet_number_of_layer_groups': 3,
                 'resnet_widening_factor': 2,
                 'number_of_epochs': 200,
-                'target_network': 'ResNet',
+                'target_network': 'ZenkeNet',
                 'optimizer': 'adam',
-                'augmentation': True
+                'augmentation': False
             }
             if part == 0:
                 pass

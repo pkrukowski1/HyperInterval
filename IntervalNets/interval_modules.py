@@ -6,6 +6,21 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+def parse_logits(x):
+    """
+    Parse the output of a target network to get lower, middle and upper predictions
+
+    Arguments:
+    ----------
+        *x*: (torch.Tensor) the output to be parsed
+    
+    Returns:
+    --------
+        a tuple of lower, middle and upper predictions
+    """
+
+    return map(lambda x_: cast(Tensor, x_.rename(None)), x.unbind("bounds"))  # type: ignore
+
 class IntervalModuleWithWeights(nn.Module, ABC):
     def __init__(self):
         super().__init__()

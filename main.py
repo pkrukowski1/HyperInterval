@@ -3,9 +3,10 @@ import random
 import torch
 import torch.nn as nn
 from typing import cast, Tuple
-from torch import Tensor
 import torch.nn.functional as F
 from IntervalNets.interval_MLP import IntervalMLP
+from IntervalNets.interval_ZenkeNet64 import ZenkeNet
+from IntervalNets.interval_modules import parse_logits
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -13,7 +14,6 @@ import seaborn as sns
 import torch.optim as optim
 from hypnettorch.mnets.resnet import ResNet
 from copy import deepcopy
-from ZenkeNet64 import ZenkeNet
 import hnet_regularizer as hreg
 from datetime import datetime
 from itertools import product
@@ -38,21 +38,6 @@ def set_seed(value):
     torch.manual_seed(value)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-
-def parse_predictions(x):
-    """
-    Parse the output of a target network to get lower, middle and upper predictions
-
-    Arguments:
-    ----------
-        *x*: (torch.Tensor) the output to be parsed
-    
-    Returns:
-    --------
-        a tuple of lower, middle and upper predictions
-    """
-
-    return map(lambda x_: cast(Tensor, x_.rename(None)), x.unbind("bounds"))  # type: ignore
 
 def append_row_to_file(filename, elements, header=''):
     '''
@@ -271,7 +256,7 @@ def calculate_accuracy(data,
             lower_weights=weights
         )
 
-        _, logits, _ = parse_predictions(logits)
+        _, logits, _ = parse_logits(logits)
        
         predictions = logits.max(dim=1)[1]
 
@@ -708,7 +693,7 @@ def train_single_task(hypernetwork,
                                              middle_weights=target_weights,
                                              lower_weights=lower_weights)
         
-        lower_pred, middle_pred, upper_pred = parse_predictions(predictions)
+        lower_pred, middle_pred, upper_pred = parse_logits(predictions)
 
         
         # We need to check wheter the distance between the lower weights
@@ -895,6 +880,7 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
             architecture = "tiny"
         else:
             raise ValueError("This dataset is currently not implemented!")
+
         target_network = ZenkeNet(in_shape=(parameters['input_shape'],
                                             parameters['input_shape'],
                                             3),  
@@ -1139,7 +1125,7 @@ def main_running_experiments(path_to_datasets,
 if __name__ == "__main__":
     #path_to_datasets = '/shared/sets/datasets/'
     path_to_datasets = './Data'
-    dataset = 'PermutedMNIST'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet'
+    dataset = 'CIFAR100'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet'
     part = 0
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") # Generate timestamp
     create_grid_search = False
