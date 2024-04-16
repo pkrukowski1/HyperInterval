@@ -8,8 +8,8 @@ import os
 import numpy as np
 import torch
 from hypnettorch.data.special import permuted_mnist
-# from DatasetHandlers.split_cifar import SplitCIFAR100Data
-from hypnettorch.data.special.split_cifar import SplitCIFAR100Data
+from DatasetHandlers.split_cifar import SplitCIFAR100Data
+# from hypnettorch.data.special.split_cifar import SplitCIFAR100Data
 from hypnettorch.data.special.split_mnist import get_split_mnist_handlers
 from DatasetHandlers.TinyImageNet import TinyImageNet
 
@@ -315,7 +315,7 @@ def set_hyperparameters(dataset,
                 'learning_rates': [0.001],
                 'perturbated_epsilon': [1.0],
                 'hypernetworks_hidden_layers': [[100]],
-                'dropout_rate': [-1, 0.25, 0.5],
+                'dropout_rate': [0.25],
                 'embd_dropout_rate': [-1, 0.25],
                 'use_batch_norm': False,
                 'use_chunks': False,
@@ -324,7 +324,7 @@ def set_hyperparameters(dataset,
                 'number_of_epochs': 200,
                 'target_network': 'ZenkeNet',
                 'optimizer': 'adam',
-                'augmentation': False
+                'augmentation': True
             }
             if part == 0:
                 pass

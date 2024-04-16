@@ -151,8 +151,8 @@ class ZenkeNet(Classifier):
                 # FIXME not a pretty solution, but we aim to follow the original
                 # paper.
                 raise ValueError("Dropout rate must be smaller equal 0.5.")
-            self._drop_conv = nn.Dropout2d(p=dropout_rate)
-            self._drop_fc1 = nn.Dropout(p=dropout_rate * 2.0)
+            self._drop_conv = IntervalDropout(p=dropout_rate)
+            self._drop_fc1 = IntervalDropout(p=dropout_rate * 2.0)
         
         self._lower_layer_weight_tensors = nn.ParameterList()
         self._lower_layer_bias_vectors = nn.ParameterList()
@@ -288,7 +288,7 @@ class ZenkeNet(Classifier):
         # 64 -> 64 -> 62 -> 31
         x = x.view(-1, *self._in_shape)
         x = x.permute(0, 3, 1, 2)
-        x = torch.stack([x, x, x], dim=1).refine_names("N", "bounds", "C", "H", "W")        
+        x = torch.stack([x, x, x], dim=1)      
 
         h = IntervalConv2d.apply_conv2d(x, 
                                         lower_weights=lower_weights[0],
@@ -346,13 +346,15 @@ class ZenkeNet(Classifier):
         # 6 x 6 x 34 = 2304
         # TinyImageNet
         # 14 x 14 x 64 = 12.544
-        h_lower, h_middle, h_upper = parse_logits(h)
+        # h_lower, h_middle, h_upper = parse_logits(h)
 
-        h_lower = h_lower.reshape(-1, lower_weights[8].size()[1])
-        h_middle = h_middle.reshape(-1, lower_weights[8].size()[1])
-        h_upper = h_upper.reshape(-1, lower_weights[8].size()[1])
+        # h_lower = h_lower.reshape(-1, lower_weights[8].size()[1])
+        # h_middle = h_middle.reshape(-1, lower_weights[8].size()[1])
+        # h_upper = h_upper.reshape(-1, lower_weights[8].size()[1])
 
-        h = torch.stack([h_lower, h_middle, h_upper], dim=1).refine_names("N", "bounds", "features")
+        # h = torch.stack([h_lower, h_middle, h_upper], dim=1).refine_names("N", "bounds", "features")
+        h = h.rename(None)
+        h = h.reshape([-1, 3, middle_weights[8].shape[1]])
 
         if self.architecture == "cifar":
             h = F.relu(IntervalLinear.apply_linear(h, 
