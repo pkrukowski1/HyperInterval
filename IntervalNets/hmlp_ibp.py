@@ -38,6 +38,7 @@ class HMLP_IBP(HMLP, HyperNetInterface):
         
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.embd_dropout_rate = embd_dropout_rate
+        self._prev_hnet_weights = None
 
         if embd_dropout_rate != -1:
             assert embd_dropout_rate >= 0 and embd_dropout_rate <= 1, "Dropout rate should be contained in the [0,1] interval"
