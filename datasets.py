@@ -9,8 +9,7 @@ import numpy as np
 import torch
 from hypnettorch.data.special import permuted_mnist
 from DatasetHandlers.split_cifar import SplitCIFAR100Data
-# from hypnettorch.data.special.split_cifar import SplitCIFAR100Data
-from hypnettorch.data.special.split_mnist import get_split_mnist_handlers
+from DatasetHandlers.split_mnist import get_split_mnist_handlers
 from DatasetHandlers.TinyImageNet import TinyImageNet
 
 
