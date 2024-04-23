@@ -25,7 +25,9 @@ from datasets import (
     prepare_permuted_mnist_tasks,
     prepare_split_mnist_tasks,
     prepare_tinyimagenet_tasks,
+    prepare_split_cifar100_tasks_aka_FeCAM
 )
+
 
 
 def set_seed(value):
@@ -566,75 +568,6 @@ def plot_intervals_around_embeddings(hypernetwork,
         plt.savefig(save_path, dpi=300)
         plt.close()
 
-def calculate_weight_change(hypernetwork,
-                            dataframe_results,
-                            parameters):
-    """
-    Calculate the weight change for each layer of the hypernetwork
-    between consecutive tasks
-    
-    Arguments:
-    ----------
-      *hypernetwork* (hypnettorch.hnets module, e.g. mlp_hnet.MLP)
-                     a hypernetwork that generates weights for the target
-                     network
-      *dataframe_results* (Pandas Dataframe) stores results; contains
-                          following columns: 'layer', 'after_learning_of_task',
-                          'tested_task' and 'difference'
-      *parameters* a dictionary containing the following keys:
-        -device- string: 'cuda' or 'cpu', defines in which device calculations
-                 will be performed
-        -number_of_task- int/None: gives an information which task is currently
-                         solved
-        -perturbated_epsilon- float
-
-    Returns:
-    --------
-      *dataframe_results* (Pandas Dataframe) a dataframe updated with
-                          the calculated results
-    """
-    # Calculate accuracy for each previously trained task
-    # as well as for the last trained task
-    hypernetwork.eval()
-
-    # The case when we know task id during interference
-    for task in range(parameters['number_of_task'] + 1):
-
-        # Generate weights of the target network for the current task
-        curr_target_weights = hypernetwork.forward(cond_id=task, 
-                                                   perturbated_eps=parameters['perturbated_epsilon'],
-                                                   return_extended_output=False)
-        
-        # Generate weights of the target network using learned weights from the previous task
-        weights = dict()
-        uncond_params = hypernetwork._prev_hnet_weights
-        weights['uncond_weights'] = uncond_params
-
-        prev_target_weights = hypernetwork(
-            cond_id=task,
-            weights=weights,
-            perturbated_eps=parameters['perturbated_epsilon'],
-            return_extended_output=False
-        )
-        
-        result = {
-            'after_learning_of_task': parameters['number_of_task'],
-            'tested_task': task
-        }
-
-
-        for layer_idx, (W_prev, W_curr) in enumerate(zip(prev_target_weights, curr_target_weights)):
-
-            diff_weights = (W_prev - W_curr).abs().mean()
-        
-            result[f'layer {layer_idx}'] = diff_weights.cpu().item()
-        
-
-        dataframe_results = dataframe_results.append(
-            result, ignore_index=True)
-        
-    return dataframe_results
-
 def train_single_task(hypernetwork,
                       target_network,
                       criterion,
@@ -685,7 +618,7 @@ def train_single_task(hypernetwork,
         # validation accuracy.
         best_hypernetwork = deepcopy(hypernetwork).to(parameters['device'])
         best_target_network = deepcopy(target_network).to(parameters['device'])
-        best_val_accuracy = 0.
+        best_val_loss = 1e15
         
     elif parameters['best_model_selection_method'] != 'last_model':
         raise ValueError('Wrong value of best_model_selection_method parameter!')
@@ -874,8 +807,8 @@ def train_single_task(hypernetwork,
             # than previously
             if parameters['best_model_selection_method'] == 'val_loss' and \
                 round(eps, 0) == parameters['perturbated_epsilon']:
-                if accuracy > best_val_accuracy:
-                    best_val_accuracy = accuracy
+                if loss.item() < best_val_loss:
+                    best_val_loss = loss.item()
                     best_hypernetwork = deepcopy(hypernetwork)
                     best_target_network = deepcopy(target_network)
             
@@ -982,10 +915,6 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
     results_from_interval_intersection = pd.DataFrame(columns=[
                     'after_learning_of_task', 'tested_task', 'accuracy'])
     
-    keys = ['after_learning_of_task', 'tested_task']
-    keys.extend([f'layer {i}' for i in range(len(parameters["target_hidden_layers"]))])
-    hnet_weights_changes_results = pd.DataFrame(columns=keys)
-    
     if (parameters['target_network'] == 'ResNet') and \
        parameters['use_batch_norm']:
         use_batch_norm_memory = True
@@ -1088,31 +1017,6 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
             results_from_interval_intersection.to_csv(f'{parameters["saving_folder"]}/'
                                                 f'results_intersection.csv',
                                                 sep=';')
-                
-
-        if no_of_task > 0:
-            # Calculate differences between weights (for each layer of the hypernetwork)
-            # for each embedding after training a new task
-            hnet_weights_changes_results = calculate_weight_change(
-                hypernetwork=hypernetwork,
-                dataframe_results=hnet_weights_changes_results,
-                parameters={
-                    'device': parameters['device'],
-                    'number_of_task': no_of_task,
-                    'perturbated_epsilon': parameters['perturbated_epsilon']
-                }
-            )
-
-        
-            hnet_weights_changes_results = hnet_weights_changes_results.astype({
-                                                        'after_learning_of_task': 'int',
-                                                        'tested_task': 'int'
-                                                    })
-            hnet_weights_changes_results.to_csv(f'{parameters["saving_folder"]}/'
-                                                    f'hnet_weights_diffs.csv',
-                                                    sep=',')
-            
-
 
         # Plot intervals over tasks' embeddings plot
         interval_plot_save_path = f'{parameters["saving_folder"]}/plots/'
@@ -1141,36 +1045,45 @@ def main_running_experiments(path_to_datasets,
     Returns learned hypernetwork, target network and a dataframe
     with single results.
     """
-    if dataset == 'PermutedMNIST':
+    if parameters["dataset"] == "PermutedMNIST":
         dataset_tasks_list = prepare_permuted_mnist_tasks(
             path_to_datasets,
             parameters["input_shape"],
             parameters["number_of_tasks"],
             parameters["padding"],
-            parameters["no_of_validation_samples"]
+            parameters["no_of_validation_samples"],
         )
-    elif dataset == 'CIFAR100':
+    elif parameters["dataset"] == "CIFAR100":
         dataset_tasks_list = prepare_split_cifar100_tasks(
             path_to_datasets,
-            validation_size=parameters['no_of_validation_samples'],
-            use_augmentation=parameters['augmentation']
+            validation_size=parameters["no_of_validation_samples"],
+            use_augmentation=parameters["augmentation"],
         )
-    elif dataset == 'SplitMNIST':
+    elif parameters["dataset"] == "SplitMNIST":
         dataset_tasks_list = prepare_split_mnist_tasks(
             path_to_datasets,
-            validation_size=parameters['no_of_validation_samples'],
-            use_augmentation=parameters['augmentation'],
-            number_of_tasks=parameters['number_of_tasks'],
+            validation_size=parameters["no_of_validation_samples"],
+            use_augmentation=parameters["augmentation"],
+            number_of_tasks=parameters["number_of_tasks"],
         )
-    elif dataset == 'TinyImageNet':
+    elif parameters["dataset"] == "TinyImageNet":
         dataset_tasks_list = prepare_tinyimagenet_tasks(
             path_to_datasets,
             seed=parameters["seed"],
             validation_size=parameters["no_of_validation_samples"],
-            number_of_tasks=parameters["number_of_tasks"]
+            number_of_tasks=parameters["number_of_tasks"],
+        )
+    elif parameters["dataset"] == "CIFAR100_FeCAM_setup":
+        dataset_tasks_list = prepare_split_cifar100_tasks_aka_FeCAM(
+            path_to_datasets,
+            number_of_tasks=parameters["number_of_tasks"],
+            no_of_validation_samples_per_class=parameters[
+                "no_of_validation_samples_per_class"
+            ],
+            use_augmentation=parameters["augmentation"],
         )
     else:
-        raise ValueError('Wrong name of the dataset!')
+        raise ValueError("Wrong name of the dataset!")
 
     hypernetwork, target_network, dataframe = build_multiple_task_experiment(
         dataset_tasks_list,
@@ -1225,7 +1138,7 @@ def main_running_experiments(path_to_datasets,
 if __name__ == "__main__":
     #path_to_datasets = '/shared/sets/datasets/'
     path_to_datasets = './Data'
-    dataset = 'PermutedMNIST'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet'
+    dataset = 'CIFAR100_FeCAM_setup'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet', 'CIFAR100_FeCAM_setup'
     part = 0
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") # Generate timestamp
     create_grid_search = False
@@ -1317,6 +1230,10 @@ if __name__ == "__main__":
             'embd_dropout_rate': embd_dropout_rate,
             'custom_init': custom_init
         }
+
+        if "no_of_validation_samples_per_class" in hyperparameters:
+            
+            parameters["no_of_validation_samples_per_class"] = hyperparameters["no_of_validation_samples_per_class"]
 
         os.makedirs(f"{parameters['saving_folder']}", exist_ok=True)
         # start_time = datetime.now().strftime("%Y%m%d_%H%M%S")

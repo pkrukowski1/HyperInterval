@@ -8,7 +8,7 @@ import os
 import numpy as np
 import torch
 from hypnettorch.data.special import permuted_mnist
-from DatasetHandlers.split_cifar import SplitCIFAR100Data
+from DatasetHandlers.split_cifar import SplitCIFAR100Data, SplitCIFAR100Data_FeCAM
 from DatasetHandlers.split_mnist import get_split_mnist_handlers
 from DatasetHandlers.TinyImageNet import TinyImageNet
 
@@ -65,6 +65,89 @@ def prepare_split_cifar100_tasks(datasets_folder,
             use_cutout=use_cutout,
             labels=range(i, i + 10)
         ))
+    return handlers
+
+def prepare_split_cifar100_tasks_aka_FeCAM(
+    datasets_folder,
+    number_of_tasks,
+    no_of_validation_samples_per_class,
+    use_augmentation,
+    use_cutout=False,
+):
+    """
+    Prepare a list of 5, 10 or 20 incremental tasks with 20, 10 or 5 classes,
+    respectively, per each task. Furthermore, the first task contains
+    a higher number of classes, i.e. 50 or 40. Therefore, in these cases,
+    the total number of tasks is equal to 6, 11 or 21.
+    Also, there is a possibility of 5 tasks with 20 classes per each.
+    The order of classes is the same like in FeCAM, also the scenarios
+    are constructed in such a way to enable a fair comparison with FeCAM
+
+    Arguments:
+    ----------
+      *datasets_folder*: (string) Defines a path in which CIFAR-100
+                         is stored / will be downloaded
+      *number_of_tasks* (int) Defines how many continual learning tasks
+                        will be created. Possible options: 6, 11 or 21
+      *no_of_validation_samples_per_class*: (int) The number of validation
+                                            samples in a single class
+      *use_augmentation*: (Boolean) potentially applies
+                          a data augmentation method from
+                          hypnettorch
+      *use_cutout*: (optional Boolean) in the positive case it applies
+                    'apply_cutout' option form 'torch_input_transforms'.
+    """
+    # FeCAM considered four scenarios: 5, 10 and 20 incremental tasks
+    # and 5 tasks with the equal number of classes
+    assert number_of_tasks in [5, 6, 11, 21]
+    # The order of image classes in the case of FeCAM was not 0-10, 11-20, etc.,
+    # but it was chosen randomly by the authors, and was at follows:
+    class_orders = [
+        87, 0, 52, 58, 44, 91, 68, 97, 51, 15,
+        94, 92, 10, 72, 49, 78, 61, 14, 8, 86,
+        84, 96, 18, 24, 32, 45, 88, 11, 4, 67,
+        69, 66, 77, 47, 79, 93, 29, 50, 57, 83,
+        17, 81, 41, 12, 37, 59, 25, 20, 80, 73,
+        1, 28, 6, 46, 62, 82, 53, 9, 31, 75,
+        38, 63, 33, 74, 27, 22, 36, 3, 16, 21,
+        60, 19, 70, 90, 89, 43, 5, 42, 65, 76,
+        40, 30, 23, 85, 2, 95, 56, 48, 71, 64,
+        98, 13, 99, 7, 34, 55, 54, 26, 35, 39
+    ]
+    # Incremental tasks from Table I, FeCAM
+    if number_of_tasks == 6:
+        numbers_of_classes_per_tasks = [50]
+        numbers_of_classes_per_tasks.extend([10 for i in range(5)])
+    elif number_of_tasks == 11:
+        numbers_of_classes_per_tasks = [50]
+        numbers_of_classes_per_tasks.extend([5 for i in range(10)])
+    elif number_of_tasks == 21:
+        numbers_of_classes_per_tasks = [40]
+        numbers_of_classes_per_tasks.extend([3 for i in range(20)])
+    # Tasks with the equal number of elements, Table V, FeCAM
+    elif number_of_tasks == 5:
+        numbers_of_classes_per_tasks = [20 for i in range(5)]
+
+    handlers = []
+    for i in range(len(numbers_of_classes_per_tasks)):
+        current_number_of_tasks = numbers_of_classes_per_tasks[i]
+        validation_size = (
+            no_of_validation_samples_per_class * current_number_of_tasks
+        )
+        handlers.append(
+            SplitCIFAR100Data_FeCAM(
+                datasets_folder,
+                use_one_hot=True,
+                validation_size=validation_size,
+                use_data_augmentation=use_augmentation,
+                use_cutout=use_cutout,
+                labels=class_orders[
+                    (i * current_number_of_tasks) : (
+                        (i + 1) * current_number_of_tasks
+                    )
+                ],
+            )
+        )
     return handlers
 
 
@@ -193,25 +276,26 @@ def set_hyperparameters(dataset,
     if dataset == 'PermutedMNIST':
         if grid_search:
             hyperparams = {
-                'custom_init': [True, False],
-                'embedding_sizes': [24],
-                'learning_rates': [0.001, 0.01],
+                'custom_init': [True],
+                'embedding_sizes': [24, 32, 64],
+                'learning_rates': [0.001],
                 'batch_sizes': [128],
-                'betas': [0.01, 0.001, 0.0001],
-                'hypernetworks_hidden_layers': [[100, 100], [25, 25]],
-                'perturbated_epsilon': [5.0, 1.0, 0.5],
+                # 'alphas': [0.01, 0.05, 0.1, 0.5],
+                'betas': [0.01, 0.005, 0.1],
+                'hypernetworks_hidden_layers': [[100, 100], [200, 200]],
+                'perturbated_epsilon': [5.0, 10.0, 15.0],
                 'best_model_selection_method': 'val_loss',
-                'dropout_rate': [-1, 0.25],
+                'dropout_rate': [-1, 0.1],
                 'embd_dropout_rate': [-1],
                 # not for optimization
-                'seed': [1, 2, 3, 4, 5]
+                'seed': [1]
             }
             if part == 0:
                 pass
             elif part == 1:
                 hyperparams['best_model_selection_method'] = 'last_model'
             hyperparams['saving_folder'] = (
-                '/shared/results/pkrukowski/HyperIntervalResults/forced_intervals/grid_search_relu/'
+                '/shared/results/pkrukowski/HyperIntervalResults/common_embedding/grid_search_relu/'
                 f'permuted_mnist_final_grid_experiments/{hyperparams["best_model_selection_method"]}/'
             )
 
@@ -235,7 +319,7 @@ def set_hyperparameters(dataset,
 
         # Both in the grid search and individual runs
         hyperparams['lr_scheduler'] = False
-        hyperparams['number_of_iterations'] = 10
+        hyperparams['number_of_iterations'] = 5000
         hyperparams['number_of_epochs'] = None
         hyperparams['no_of_validation_samples'] = 500
         hyperparams['target_hidden_layers'] = [1000, 1000]
@@ -250,8 +334,9 @@ def set_hyperparameters(dataset,
         # Directly related to the MNIST dataset
         hyperparams['padding'] = 2
         hyperparams['shape'] = (28 + 2 * hyperparams['padding'])**2
-        hyperparams['number_of_tasks'] = 3
+        hyperparams['number_of_tasks'] = 10
         hyperparams['augmentation'] = False
+
 
 
     elif dataset == 'CIFAR100':
@@ -298,7 +383,7 @@ def set_hyperparameters(dataset,
             else:
                 raise ValueError(f'Wrong argument: {part}!')
             hyperparams['saving_folder'] = (
-                '/shared/results/pkrukowski/HyperIntervalResults/forced_intervals/grid_search_relu/'
+                '/shared/results/pkrukowski/HyperIntervalResults/common_embedding/grid_search_relu/'
                 f'CIFAR-100_single_seed/'
                 f'part_{part}_ZenkeNet_stronger_reg/'
             )
@@ -359,17 +444,18 @@ def set_hyperparameters(dataset,
     elif dataset == 'SplitMNIST':
         if grid_search:
             hyperparams = {
+                'custom_init': [True],
                 'learning_rates': [0.001],
                 'batch_sizes': [64, 128],
-                'betas': [0.1, 0.01, 0.001],
-                'hypernetworks_hidden_layers': [[25, 25], [50, 50]],
-                'dropout_rate': [-1, 0.25, 0.5],
-                'embd_dropout_rate': [-1, 0.25],
-                'perturbated_epsilon': [10, 5, 1, 0.5],
+                'betas': [0.01, 0.001],
+                'hypernetworks_hidden_layers': [[25, 25], [50, 50], [75, 75]],
+                'dropout_rate': [-1],
+                'embd_dropout_rate': [-1],
+                'perturbated_epsilon': [5.0, 10.0, 15.0],
                 # seed is not for optimization but for ensuring multiple results
                 'seed': [1],
                 'best_model_selection_method': 'val_loss',
-                'embedding_sizes': [8, 16, 24],
+                'embedding_sizes': [24, 72, 96, 128],
                 'augmentation': True
             }
             if part == 0:
@@ -382,8 +468,8 @@ def set_hyperparameters(dataset,
                 raise ValueError('Not implemented subset of hyperparameters!')
 
             hyperparams['saving_folder'] = (
-                '/shared/results/pkrukowski/HyperIntervalResults/forced_intervals/grid_search_relu/'
-                f'split_mnist/augmented/ICLR_models/part_{part}/'
+                '/shared/results/pkrukowski/HyperIntervalResults/common_embedding/grid_search_relu/'
+                f'split_mnist/augmented/'
             )
 
         else:
@@ -407,10 +493,10 @@ def set_hyperparameters(dataset,
         hyperparams['resnet_number_of_layer_groups'] = None
         hyperparams['resnet_widening_factor'] = None
         hyperparams['optimizer'] = 'adam'
-        hyperparams['number_of_iterations'] = 100
+        hyperparams['number_of_iterations'] = 2000
         hyperparams['number_of_epochs'] = None
         hyperparams['no_of_validation_samples'] = 1000
-        hyperparams['target_hidden_layers'] = [1000, 1000]
+        hyperparams['target_hidden_layers'] = [400, 400]
         hyperparams['shape'] = 28**2
         hyperparams['number_of_tasks'] = 5
         hyperparams['chunk_size'] = 100
@@ -418,24 +504,25 @@ def set_hyperparameters(dataset,
         hyperparams['use_chunks'] = False
         hyperparams['use_batch_norm'] = False
         hyperparams['padding'] = None
-        # hyperparams['best_model_selection_method'] = 'val_loss'
+        hyperparams['best_model_selection_method'] = 'val_loss'
     
     elif dataset == 'TinyImageNet':
         if grid_search:
             hyperparams = {
-                "seed": [1,2,3,4,5],
-                "perturbated_epsilon": [10, 5, 1, 0.5],
-                "embedding_sizes": [48],
-                "learning_rates": [0.001],
-                "batch_sizes": [32],
-                'dropout_rate': [-1, 0.25, 0.5],
-                'embd_dropout_rate': [-1, 0.25],
-                'betas': [0.01, 0.1, 1.0],
-                'hypernetworks_hidden_layers': [[100], [10, 10]],
+                "seed": [1],
+                "custom_init": [True],
+                "perturbated_epsilon": [10, 15, 20],
+                "embedding_sizes": [96],
+                "learning_rates": [0.001, 0.01],
+                "batch_sizes": [16, 32],
+                'dropout_rate': [-1, 0.25],
+                'embd_dropout_rate': [-1],
+                'betas': [1.0, 0.01, 0.1],
+                'hypernetworks_hidden_layers': [[100, 100], [200, 200]],
                 'resnet_number_of_layer_groups': 3,
                 'resnet_widening_factor': 2,
                 "optimizer": "adam",
-                "use_batch_norm": True,
+                "use_batch_norm": False,
                 "target_network": "ZenkeNet",
                 "use_chunks": False,
                 "number_of_epochs": 10,
@@ -443,7 +530,7 @@ def set_hyperparameters(dataset,
             }
 
             hyperparams['saving_folder'] = (
-                '/shared/results/pkrukowski/HyperIntervalResults/forced_intervals/grid_search_relu/'
+                '/shared/results/pkrukowski/HyperIntervalResults/common_embedding/grid_search_relu/'
                 f'TinyImageNet/'
                 f'part_0_ZenkeNet/'
             )
@@ -468,7 +555,7 @@ def set_hyperparameters(dataset,
                 "augmentation": True,
                 "saving_folder": "./Results/TinyImageNet/best_hyperparams/"
             }
-        hyperparams["lr_scheduler"] = True
+        hyperparams["lr_scheduler"] = False
         hyperparams["number_of_iterations"] = None
         hyperparams["no_of_validation_samples"] = 250
         if hyperparams["target_network"] in ["ResNet", "ZenkeNet"]:
@@ -477,7 +564,86 @@ def set_hyperparameters(dataset,
         elif hyperparams["target_network"] == "MLP":
             hyperparams["shape"] = 12288
             hyperparams["target_hidden_layers"] = [1000, 1000]
-        hyperparams["number_of_tasks"] = 1
+        hyperparams["number_of_tasks"] = 40
+        hyperparams["chunk_size"] = 100
+        hyperparams["chunk_emb_size"] = 32
+        hyperparams["padding"] = None
+        hyperparams["best_model_selection_method"] = "val_loss"
+    
+    elif dataset == "CIFAR100_FeCAM_setup":
+        if grid_search:
+            hyperparams = {
+                'seed': [1],
+                'custom_init': [True],
+                'embedding_sizes': [48, 64],
+                'betas': [0.01, 0.1, 1.0],
+                'learning_rates': [0.0001, 0.001],
+                'batch_sizes': [32],
+                'hypernetworks_hidden_layers': [[200], [100]],
+                'perturbated_epsilon': [10, 15, 20],
+                'dropout_rate': [-1, 0.2],
+                'embd_dropout_rate': [-1],
+                'resnet_number_of_layer_groups': 3,
+                'resnet_widening_factor': 2,
+                'optimizer': 'adam',
+                'use_batch_norm': False,
+                'target_network': 'ZenkeNet',
+                'use_chunks': False,
+                'number_of_epochs': 200,
+                'augmentation': True,
+                'best_model_selection_method': 'val_loss'
+            }
+            if part == 0:
+                pass
+            elif part == 1:
+                hyperparams['best_model_selection_method'] = 'last_model'
+            hyperparams['saving_folder'] = (
+                '/shared/results/pkrukowski/HyperIntervalResults/common_embedding/grid_search_relu/'
+                f'CIFAR100_FeCAM_setup/{hyperparams["best_model_selection_method"]}/'
+            )
+        else:
+            # Single experiment
+            hyperparams = {
+               'seed': [1],
+               'custom_init': [True],
+                'embedding_sizes': [48],
+                'betas': [0.01],
+                'learning_rates': [0.001],
+                'alphas': [0.1],
+                'batch_sizes': [32, 64],
+                'hypernetworks_hidden_layers': [[100]],
+                'perturbated_epsilon': [10],
+                'dropout_rate': [-1],
+                'embd_dropout_rate': [-1],
+                'resnet_number_of_layer_groups': 3,
+                'resnet_widening_factor': 2,
+                'optimizer': 'adam',
+                'use_batch_norm': False,
+                'target_network': 'ZenkeNet',
+                'use_chunks': False,
+                'number_of_epochs': 1,
+                'augmentation': True
+            }
+            # FeCAM considered three incremental scenarios: with 6, 11 and 21 tasks
+            # ResNet - parts 0, 1 and 2
+            # ZenkeNet - parts 3, 4 and 5
+            # Also, one scenario with equal number of classes: ResNet - part 6
+            hyperparams[
+                "saving_folder"
+            ] = f"./Results/CIFAR_100_FeCAM_part_{part}/"
+
+        hyperparams["lr_scheduler"] = False
+        hyperparams["number_of_iterations"] = None
+        hyperparams["no_of_validation_samples_per_class"] = 100
+        hyperparams["no_of_validation_samples"] = 2000
+        hyperparams["number_of_tasks"] = 5
+
+        if hyperparams["target_network"] in ["ResNet", "ZenkeNet"]:
+            hyperparams["shape"] = 32
+            hyperparams["target_hidden_layers"] = None
+        elif hyperparams["target_network"] == "MLP":
+            hyperparams["shape"] = 3072
+            hyperparams["target_hidden_layers"] = [1000, 1000]
         hyperparams["chunk_size"] = 100
         hyperparams["chunk_emb_size"] = 32
         hyperparams["padding"] = None
