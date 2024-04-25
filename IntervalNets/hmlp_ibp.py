@@ -68,7 +68,8 @@ class HMLP_IBP(HMLP, HyperNetInterface):
     def forward(self, uncond_input=None, cond_input=None, cond_id=None,
                 weights=None, distilled_params=None, condition=None,
                 ret_format='squeezed', return_extended_output = False,
-                perturbated_eps = None, common_emb=False):
+                perturbated_eps = None, common_emb=False, 
+                common_radii = None):
         """Compute the weights of a target network.
 
         Args:
@@ -87,6 +88,9 @@ class HMLP_IBP(HMLP, HyperNetInterface):
             (list or torch.Tensor): See docstring of method
             :meth:`hnets.hnet_interface.HyperNetInterface.forward`.
         """
+
+        assert (common_radii is None and not common_emb) or \
+                (common_radii is not None and common_emb)
 
         uncond_input, cond_input, uncond_weights, _ = \
             self._preprocess_forward_args(uncond_input=uncond_input,
@@ -122,7 +126,7 @@ class HMLP_IBP(HMLP, HyperNetInterface):
             ], dim=0)
 
         else:
-            eps = perturbated_eps * F.softmax(torch.ones_like(h), dim=-1)
+            eps = common_radii
         
         eps = eps.to(self._device)
 
@@ -162,8 +166,9 @@ class HMLP_IBP(HMLP, HyperNetInterface):
 
         for i in range(len(fc_weights)):
             last_layer = i == (len(fc_weights) - 1)
-
+            
             h = F.linear(h, fc_weights[i], bias=fc_biases[i])
+
             W = torch.abs(fc_weights[i])
             eps = F.linear(eps, W, bias=torch.zeros_like(fc_biases[i]))
 

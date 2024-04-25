@@ -606,11 +606,12 @@ def set_hyperparameters(dataset,
             hyperparams = {
                'seed': [1],
                'custom_init': [True],
+               'alphas': [2],
                 'embedding_sizes': [48],
                 'betas': [0.01],
                 'learning_rates': [0.001],
                 'alphas': [0.1],
-                'batch_sizes': [32, 64],
+                'batch_sizes': [128],
                 'hypernetworks_hidden_layers': [[100]],
                 'perturbated_epsilon': [10],
                 'dropout_rate': [-1],
@@ -621,7 +622,7 @@ def set_hyperparameters(dataset,
                 'use_batch_norm': False,
                 'target_network': 'ZenkeNet',
                 'use_chunks': False,
-                'number_of_epochs': 1,
+                'number_of_epochs': 200,
                 'augmentation': True
             }
             # FeCAM considered three incremental scenarios: with 6, 11 and 21 tasks
@@ -634,7 +635,7 @@ def set_hyperparameters(dataset,
 
         hyperparams["lr_scheduler"] = False
         hyperparams["number_of_iterations"] = None
-        hyperparams["no_of_validation_samples_per_class"] = 100
+        hyperparams["no_of_validation_samples_per_class"] = 50
         hyperparams["no_of_validation_samples"] = 2000
         hyperparams["number_of_tasks"] = 5
 

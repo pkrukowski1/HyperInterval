@@ -269,6 +269,7 @@ def calculate_accuracy(data,
 def evaluate_previous_tasks_for_intersection(hypernetwork,
                             target_network,
                             common_emb,
+                            common_radii,
                             dataframe_results,
                             list_of_permutations,
                             parameters):
@@ -287,6 +288,7 @@ def evaluate_previous_tasks_for_intersection(hypernetwork,
                        classification
       *common_emb* (torch.Tensor) an embedding which is produced as a middle
                     of intervals' intersection for already learned tasks
+      *common_radii* (torch.Tensor) radii of the common embedding
       *dataframe_results* (Pandas Dataframe) stores results; contains
                           following columns: 'after_learning_of_task',
                           'tested_task' and 'accuracy'
@@ -315,7 +317,8 @@ def evaluate_previous_tasks_for_intersection(hypernetwork,
     inter_target_weights = hypernetwork.forward(cond_input=common_emb.view(1, -1),
                                                 perturbated_eps=parameters["perturbated_epsilon"],
                                                 return_extended_output=False,
-                                                common_emb=True)
+                                                common_emb=True,
+                                                common_radii=common_radii)
 
     for task in range(parameters['number_of_task'] + 1):
         # Target entropy calculation should be included here: hypernetwork has to be inferred
@@ -663,6 +666,7 @@ def train_single_task(hypernetwork,
 
     iterations_to_adjust = (parameters["number_of_iterations"] // 2)
     iterations_to_adjust = int(iterations_to_adjust)
+    alpha = parameters["alpha"]
 
     for iteration in range(parameters['number_of_iterations']):
         current_batch = current_dataset_instance.next_train_batch(
@@ -681,7 +685,7 @@ def train_single_task(hypernetwork,
         # Adjust kappa and epsilon
         if iteration < iterations_to_adjust:
             kappa = max(1 - 0.00005*iteration, hyperparameters["kappa"])
-            eps   = iteration / (iterations_to_adjust-1) * parameters["perturbated_epsilon"]
+            eps   = (iteration / (iterations_to_adjust-1))**alpha * parameters["perturbated_epsilon"]
         else:
             kappa = parameters["kappa"]
             eps   = parameters["perturbated_epsilon"]
@@ -991,16 +995,23 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
                 common_emb = calculate_interval_intersection(hypernetwork=hypernetwork,
                                                                 parameters=parameters,
                                                                 current_task_id=no_of_task)
+                
+                common_radii = parameters["perturbated_epsilon"] * F.softmax(
+                    hypernetwork.perturbated_eps_T[no_of_task],
+                    dim=-1
+                )
             else:
                 zl_common_emb, common_emb, zu_common_emb = calculate_interval_intersection(hypernetwork=hypernetwork,
                                                                                             parameters=parameters,
                                                                                             current_task_id=no_of_task)
+                common_radii = (zu_common_emb - zl_common_emb)/2.0
                 
             # Evaluate previous tasks for intersection
             results_from_interval_intersection = evaluate_previous_tasks_for_intersection(
                                                     hypernetwork,
                                                     target_network,
                                                     common_emb,
+                                                    common_radii,
                                                     results_from_interval_intersection,
                                                     dataset_list_of_tasks,
                                                     parameters={
@@ -1175,7 +1186,8 @@ if __name__ == "__main__":
                 hyperparameters["perturbated_epsilon"],
                 hyperparameters["dropout_rate"],
                 hyperparameters["embd_dropout_rate"],
-                hyperparameters["custom_init"])
+                hyperparameters["custom_init"],
+                hyperparameters["alphas"])
     ):
         embedding_size = elements[0]
         learning_rate = elements[1]
@@ -1186,6 +1198,7 @@ if __name__ == "__main__":
         dropout_rate = elements[7]
         embd_dropout_rate = elements[8]
         custom_init = elements[9]
+        alpha = elements[10]
         
         # Of course, seed is not optimized but it is easier to prepare experiments
         # for multiple seeds in such a way
@@ -1228,7 +1241,8 @@ if __name__ == "__main__":
             'kappa': hyperparameters["kappa"],
             'dropout_rate': dropout_rate,
             'embd_dropout_rate': embd_dropout_rate,
-            'custom_init': custom_init
+            'custom_init': custom_init,
+            'alpha': alpha
         }
 
         if "no_of_validation_samples_per_class" in hyperparameters:
