@@ -20,7 +20,8 @@ from skimage.color import gray2rgb
 class SubsetImageNet(Dataset):
     _DOWNLOAD_PATH = "https://www.kaggle.com/datasets/arjunashok33/imagenet-subset-for-inc-learn/download?datasetVersionNumber=1"
     _DOWNLOAD_FILE = "archive.zip"
-    _EXTRACTED_FOLDER = "seed_1993_subset_100_imagenet"
+    # _EXTRACTED_FOLDER = "seed_1993_subset_100_imagenet"
+    _EXTRACTED_FOLDER = "imagenet100"
 
     def __init__(
         self,

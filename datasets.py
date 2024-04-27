@@ -537,6 +537,8 @@ def set_hyperparameters(dataset,
         else:
             hyperparams = {
                "seed": [1],
+               "custom_init": [True],
+               "alphas": [2],
                 "perturbated_epsilon": [1.0],
                 "embedding_sizes": [48],
                 "learning_rates": [0.001],
