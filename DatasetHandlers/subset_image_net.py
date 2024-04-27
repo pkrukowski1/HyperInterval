@@ -9,6 +9,7 @@ import numpy as np
 import time
 import glob
 import torch
+import platform
 import urllib.request
 from zipfile import ZipFile
 from hypnettorch.data.dataset import Dataset
@@ -38,6 +39,7 @@ class SubsetImageNet(Dataset):
         self._use_one_hot = use_one_hot
         self._seed = seed
         self._validation_size = validation_size
+        self._system = platform.system()
         start = time.time()
         print("Reading SubsetImageNet dataset...")
 
@@ -76,6 +78,8 @@ class SubsetImageNet(Dataset):
                 zf.close()
                 os.remove(archive_fn)
 
+        print("Data extracted!")
+
         self._data["classification"] = True
         self._data["sequence"] = False
         self._data["num_classes"] = 20
@@ -92,6 +96,7 @@ class SubsetImageNet(Dataset):
             self.ids[line.replace("\n", "")] = i
 
         # Transform labels to the shape proper for neural networks
+        
         self._translate_labels()
         (
             self.train_data,
@@ -260,7 +265,6 @@ class SubsetImageNet(Dataset):
                 f"{self.data_path}/{self._EXTRACTED_FOLDER}/data/train/*/*.JPEG"
             )
         elif mode == "test":
-            id_dict_test = {}
             filenames = glob.glob(
                 f"{self.data_path}/{self._EXTRACTED_FOLDER}/data/val/*/*.JPEG"
             )
@@ -270,7 +274,13 @@ class SubsetImageNet(Dataset):
             if len(image.shape) == 2:  # gray-scale
                 image = gray2rgb(image)
             image = image / 255
-            label = self.ids[file.split("/")[-2]]
+
+            if self._system == 'Windows':
+                label = self.ids[file.split("\\")[-2]]
+            elif self._system in ['Linux', 'Darwin']:
+                label = self.ids[file.split("/")[-2]]
+            else:
+                raise(NotImplementedError)
 
             # Add to the image only cases which are from the desired class
             if label in self._labels:
@@ -281,7 +291,7 @@ class SubsetImageNet(Dataset):
         data = np.vstack(data)
         labels = np.array(labels)
 
-        print(f"LEJBELS: {labels}")
+        print(f"LEJBELS DONE")
 
         # 100 classes in TinyImageNet
         assert np.min(np.squeeze(labels)) == np.min(
@@ -447,5 +457,5 @@ class SubsetImageNet(Dataset):
         return self.translate_real_label_to_temp_label
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass
