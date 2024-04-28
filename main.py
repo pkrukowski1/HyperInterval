@@ -199,7 +199,9 @@ def get_number_of_batch_normalization_layer(target_network):
 
 def calculate_accuracy(data,
                        target_network,
-                       weights,
+                       lower_weights,
+                       middle_weights,
+                       upper_weights,
                        parameters,
                        evaluation_dataset):
     """
@@ -213,7 +215,11 @@ def calculate_accuracy(data,
               in the case of the PermutedMNIST dataset
       *target_network*: an instance of the network that will be used
                         during calculations (not necessarily with weights)
-      *weights*: weights for the *target_network* network
+      *lower_weights*: lower weights for the *target_network* network
+                 (an instance of torch.nn.modules.container.ParameterList)
+      *middle_weights*: middle weights for the *target_network* network
+                 (an instance of torch.nn.modules.container.ParameterList)
+      *upper_weights*: upper weights for the *target_network* network
                  (an instance of torch.nn.modules.container.ParameterList)
       *parameters* a dictionary containing the following keys:
         -device- string: 'cuda' or 'cpu', defines in which device calculations
@@ -253,9 +259,9 @@ def calculate_accuracy(data,
 
         logits = target_network.forward(
             x=test_input,
-            upper_weights=weights,
-            middle_weights=weights,
-            lower_weights=weights
+            upper_weights=upper_weights,
+            middle_weights=middle_weights,
+            lower_weights=lower_weights
         )
 
         _, logits, _ = parse_logits(logits)
@@ -314,11 +320,11 @@ def evaluate_previous_tasks_for_intersection(hypernetwork,
     hypernetwork.eval()
     target_network.eval()
 
-    inter_target_weights = hypernetwork.forward(cond_input=common_emb.view(1, -1),
-                                                perturbated_eps=parameters["perturbated_epsilon"],
-                                                return_extended_output=False,
-                                                common_emb=True,
-                                                common_radii=common_radii)
+    inter_lower_weights, inter_target_weights, inter_upper_weights, _ = hypernetwork.forward(cond_input=common_emb.view(1, -1),
+                                                                        perturbated_eps=parameters["perturbated_epsilon"],
+                                                                        return_extended_output=True,
+                                                                        common_emb=True,
+                                                                        common_radii=common_radii)
 
     for task in range(parameters['number_of_task'] + 1):
         # Target entropy calculation should be included here: hypernetwork has to be inferred
@@ -331,7 +337,9 @@ def evaluate_previous_tasks_for_intersection(hypernetwork,
         accuracy = calculate_accuracy(
             currently_tested_task,
             target_network,
+            inter_lower_weights,
             inter_target_weights,
+            inter_upper_weights,
             parameters=parameters,
             evaluation_dataset='test'
         )
@@ -401,13 +409,15 @@ def evaluate_previous_tasks(hypernetwork,
         currently_tested_task = list_of_permutations[task]
 
         # Generate weights of the target network
-        target_weights = hypernetwork.forward(cond_id=task, perturbated_eps=parameters['perturbated_epsilon'],
-                                              return_extended_output=False)
+        lower_weights, target_weights, upper_weights = hypernetwork.forward(cond_id=task, perturbated_eps=parameters['perturbated_epsilon'],
+                                                                            return_extended_output=True)
 
         accuracy = calculate_accuracy(
             currently_tested_task,
             target_network,
+            lower_weights,
             target_weights,
+            upper_weights,
             parameters=parameters,
             evaluation_dataset='test'
         )
@@ -736,7 +746,6 @@ def train_single_task(hypernetwork,
                 eps=parameters["perturbated_epsilon"]
             )
         
-
         # Calculate total loss
         loss = loss_current_task + \
             parameters['beta'] * loss_regularization / max(1, current_no_of_task)
@@ -795,7 +804,9 @@ def train_single_task(hypernetwork,
             accuracy = calculate_accuracy(
                 current_dataset_instance,
                 target_network,
+                lower_weights,
                 target_weights,
+                upper_weights,
                 parameters={
                     'device': parameters['device'],
                     'use_batch_norm_memory': use_batch_norm_memory,
@@ -1147,12 +1158,12 @@ def main_running_experiments(path_to_datasets,
 
 
 if __name__ == "__main__":
-    #path_to_datasets = '/shared/sets/datasets/'
-    path_to_datasets = './Data'
-    dataset = 'TinyImageNet'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet', 'CIFAR100_FeCAM_setup'
+    path_to_datasets = '/shared/sets/datasets/'
+    # path_to_datasets = './Data'
+    dataset = 'CIFAR100_FeCAM_setup'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet', 'CIFAR100_FeCAM_setup'
     part = 0
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") # Generate timestamp
-    create_grid_search = False
+    create_grid_search = True
 
     if create_grid_search:
         summary_results_filename = 'grid_search_results'
