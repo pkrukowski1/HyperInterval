@@ -900,7 +900,7 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
             architecture = "tiny"
         else:
             raise ValueError("This dataset is currently not implemented!")
-
+        print(f"AŁTPUT SZEJP: {output_shape}")
         target_network = ZenkeNet(in_shape=(parameters['input_shape'],
                                             parameters['input_shape'],
                                             3),  
@@ -1158,12 +1158,12 @@ def main_running_experiments(path_to_datasets,
 
 
 if __name__ == "__main__":
-    path_to_datasets = '/shared/sets/datasets/'
-    # path_to_datasets = './Data'
+    # path_to_datasets = '/shared/sets/datasets/'
+    path_to_datasets = './Data'
     dataset = 'CIFAR100_FeCAM_setup'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet', 'CIFAR100_FeCAM_setup'
     part = 0
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") # Generate timestamp
-    create_grid_search = True
+    create_grid_search = False
 
     if create_grid_search:
         summary_results_filename = 'grid_search_results'
