@@ -280,7 +280,6 @@ def set_hyperparameters(dataset,
                 'embedding_sizes': [24, 32, 64],
                 'learning_rates': [0.001],
                 'batch_sizes': [128],
-                # 'alphas': [0.01, 0.05, 0.1, 0.5],
                 'betas': [0.01, 0.005, 0.1],
                 'hypernetworks_hidden_layers': [[100, 100], [200, 200]],
                 'perturbated_epsilon': [5.0, 10.0, 15.0],
@@ -319,7 +318,7 @@ def set_hyperparameters(dataset,
 
         # Both in the grid search and individual runs
         hyperparams['lr_scheduler'] = False
-        hyperparams['number_of_iterations'] = 5000
+        hyperparams['number_of_iterations'] = 10
         hyperparams['number_of_epochs'] = None
         hyperparams['no_of_validation_samples'] = 500
         hyperparams['target_hidden_layers'] = [1000, 1000]
@@ -334,7 +333,7 @@ def set_hyperparameters(dataset,
         # Directly related to the MNIST dataset
         hyperparams['padding'] = 2
         hyperparams['shape'] = (28 + 2 * hyperparams['padding'])**2
-        hyperparams['number_of_tasks'] = 10
+        hyperparams['number_of_tasks'] = 2
         hyperparams['augmentation'] = False
 
 
@@ -399,7 +398,6 @@ def set_hyperparameters(dataset,
                 'learning_rates': [0.001],
                 'perturbated_epsilon': [1.0],
                 'hypernetworks_hidden_layers': [[100]],
-                "alphas": [1],
                 'dropout_rate': [-1, 0.25],
                 'embd_dropout_rate': [-1, 0.25],
                 'use_batch_norm': True,
@@ -539,7 +537,6 @@ def set_hyperparameters(dataset,
             hyperparams = {
                "seed": [1],
                "custom_init": [True],
-               "alphas": [2],
                 "perturbated_epsilon": [1.0],
                 "embedding_sizes": [48],
                 "learning_rates": [0.001],
@@ -609,11 +606,9 @@ def set_hyperparameters(dataset,
             hyperparams = {
                'seed': [1],
                'custom_init': [True],
-               'alphas': [2],
                 'embedding_sizes': [48],
                 'betas': [0.01],
                 'learning_rates': [0.001],
-                'alphas': [0.1],
                 'batch_sizes': [128],
                 'hypernetworks_hidden_layers': [[100]],
                 'perturbated_epsilon': [10],
@@ -622,8 +617,8 @@ def set_hyperparameters(dataset,
                 'resnet_number_of_layer_groups': 3,
                 'resnet_widening_factor': 2,
                 'optimizer': 'adam',
-                'use_batch_norm': False,
-                'target_network': 'ZenkeNet',
+                'use_batch_norm': True,
+                'target_network': 'ResNet',
                 'use_chunks': False,
                 'number_of_epochs': 200,
                 'augmentation': True

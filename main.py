@@ -410,7 +410,7 @@ def evaluate_previous_tasks(hypernetwork,
         currently_tested_task = list_of_permutations[task]
 
         # Generate weights of the target network
-        lower_weights, target_weights, upper_weights = hypernetwork.forward(cond_id=task, perturbated_eps=parameters['perturbated_epsilon'],
+        lower_weights, target_weights, upper_weights, _ = hypernetwork.forward(cond_id=task, perturbated_eps=parameters['perturbated_epsilon'],
                                                                             return_extended_output=True)
 
         accuracy = calculate_accuracy(
@@ -642,10 +642,6 @@ def train_single_task(hypernetwork,
     target_network.train()
     print(f'task: {current_no_of_task}')
     if current_no_of_task > 0:
-        lower_reg_targets, middle_reg_targets, upper_reg_targets = hreg.get_current_targets(
-                                                                            task_id=current_no_of_task,
-                                                                            hnet=hypernetwork,
-                                                                            eps=parameters["perturbated_epsilon"])
         previous_hnet_theta = None
         previous_hnet_embeddings = None
 
@@ -677,7 +673,6 @@ def train_single_task(hypernetwork,
 
     iterations_to_adjust = (parameters["number_of_iterations"] // 2)
     iterations_to_adjust = int(iterations_to_adjust)
-    alpha = parameters["alpha"]
 
     for iteration in range(parameters['number_of_iterations']):
         current_batch = current_dataset_instance.next_train_batch(
@@ -696,7 +691,7 @@ def train_single_task(hypernetwork,
         # Adjust kappa and epsilon
         if iteration < iterations_to_adjust:
             kappa = max(1 - 0.00005*iteration, hyperparameters["kappa"])
-            eps   = (iteration / (iterations_to_adjust-1))**alpha * parameters["perturbated_epsilon"]
+            eps   = (iteration / (iterations_to_adjust-1)) * parameters["perturbated_epsilon"]
         else:
             kappa = parameters["kappa"]
             eps   = parameters["perturbated_epsilon"]
@@ -736,6 +731,14 @@ def train_single_task(hypernetwork,
         loss_regularization = 0.
 
         if current_no_of_task > 0:
+            # Regularize hypernetwork's output. Hypernetwork has an access to weights
+            # learned during previous task, so returned targets are targets returned
+            # by the condition of the previously learned weights.
+            lower_reg_targets, middle_reg_targets, upper_reg_targets = hreg.get_current_targets(
+                                                                                task_id=current_no_of_task,
+                                                                                hnet=hypernetwork,
+                                                                                eps=eps)
+        
             loss_regularization = hreg.calc_fix_target_reg(
                 hypernetwork, current_no_of_task,
                 lower_targets=lower_reg_targets,
@@ -743,7 +746,7 @@ def train_single_task(hypernetwork,
                 upper_targets=upper_reg_targets,
                 mnet=target_network, prev_theta=previous_hnet_theta,
                 prev_task_embs=previous_hnet_embeddings,
-                eps=parameters["perturbated_epsilon"]
+                eps=eps
             )
         
         # Calculate total loss
@@ -884,10 +887,11 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
     elif parameters['target_network'] == 'ResNet':
         if parameters["dataset"] == "TinyImageNet":
             mode = "tiny"
-        elif parameters["dataset"] == "CIFAR100":
+        elif parameters["dataset"] == "CIFAR100" or parameters["dataset"] == "CIFAR100_FeCAM_setup":
             mode = "cifar"
         else:
             mode = "default"
+
         target_network = ResNetBasic(
             in_shape=(parameters["input_shape"], parameters["input_shape"], 3),
             use_bias=False,
@@ -899,7 +903,7 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
             no_weights=False,
             use_batch_norm=parameters["use_batch_norm"],
             projection_shortcut=True,
-            bn_track_stats=True,
+            bn_track_stats=False,
             cutout_mod=True,
             mode=mode,
         ).to(parameters["device"])
@@ -1172,7 +1176,7 @@ def main_running_experiments(path_to_datasets,
 if __name__ == "__main__":
     # path_to_datasets = '/shared/sets/datasets/'
     path_to_datasets = './Data'
-    dataset = 'CIFAR100'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet', 'CIFAR100_FeCAM_setup'
+    dataset = 'PermutedMNIST'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet', 'CIFAR100_FeCAM_setup'
     part = 0
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") # Generate timestamp
     create_grid_search = False
@@ -1209,8 +1213,7 @@ if __name__ == "__main__":
                 hyperparameters["perturbated_epsilon"],
                 hyperparameters["dropout_rate"],
                 hyperparameters["embd_dropout_rate"],
-                hyperparameters["custom_init"],
-                hyperparameters["alphas"])
+                hyperparameters["custom_init"])
     ):
         embedding_size = elements[0]
         learning_rate = elements[1]
@@ -1221,7 +1224,6 @@ if __name__ == "__main__":
         dropout_rate = elements[7]
         embd_dropout_rate = elements[8]
         custom_init = elements[9]
-        alpha = elements[10]
         
         # Of course, seed is not optimized but it is easier to prepare experiments
         # for multiple seeds in such a way
@@ -1265,7 +1267,6 @@ if __name__ == "__main__":
             'dropout_rate': dropout_rate,
             'embd_dropout_rate': embd_dropout_rate,
             'custom_init': custom_init,
-            'alpha': alpha
         }
 
         if "no_of_validation_samples_per_class" in hyperparameters:

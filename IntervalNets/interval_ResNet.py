@@ -557,7 +557,9 @@ class ResNetBasic(Classifier):
         if self._use_batch_norm:
             lbw = 2 * len(self.batchnorm_layers)
             
-            bn_weights = middle_int_weights[:lbw]
+            lower_bn_weights = lower_int_weights[:lbw]
+            middle_bn_weights = middle_int_weights[:lbw]
+            upper_bn_weights = upper_int_weights[:lbw]
 
             lower_int_weights  = lower_int_weights[lbw:]
             middle_int_weights = middle_int_weights[lbw:]
@@ -566,14 +568,25 @@ class ResNetBasic(Classifier):
             bn_meta = int_meta[:lbw]
             int_meta = int_meta[lbw:]
 
-            bn_scales = []
-            bn_shifts = []
+            lower_bn_scales = []
+            lower_bn_shifts = []
+
+            middle_bn_scales = []
+            middle_bn_shifts = []
+
+            upper_bn_scales = []
+            upper_bn_shifts = []
 
             for i in range(len(self.batchnorm_layers)):
                 assert bn_meta[2 * i]["name"] == "bn_scale"
-                bn_scales.append(bn_weights[2 * i])
+                lower_bn_scales.append(lower_bn_weights[2 * i])
+                middle_bn_scales.append(middle_bn_weights[2 * i])
+                upper_bn_scales.append(upper_bn_weights[2 * i])
+
                 assert bn_meta[2 * i + 1]["name"] == "bn_shift"
-                bn_shifts.append(bn_weights[2 * i + 1])
+                lower_bn_shifts.append(lower_bn_weights[2 * i + 1])
+                middle_bn_shifts.append(middle_bn_weights[2 * i + 1])
+                upper_bn_shifts.append(upper_bn_weights[2 * i + 1])
 
         ### Split internal weights layer-wise.
         # Weights of skip connections.
@@ -721,32 +734,31 @@ class ResNetBasic(Classifier):
             if self._use_batch_norm:
                 h_lower, h_middle, h_upper = parse_logits(h)
 
-                h_middle = self._batchnorm_layers[bn_ind].forward(
-                    h_middle,
+                h_lower = self._batchnorm_layers[bn_ind].forward(
+                    h_lower,
                     running_mean=running_means[bn_ind],
                     running_var=running_vars[bn_ind],
-                    weight=bn_scales[bn_ind],
-                    bias=bn_shifts[bn_ind],
+                    weight=lower_bn_scales[bn_ind],
+                    bias=lower_bn_shifts[bn_ind],
+                    stats_id=bn_cond,
+                )
+
+
+                h_upper = self._batchnorm_layers[bn_ind].forward(
+                    h_upper,
+                    running_mean=running_means[bn_ind],
+                    running_var=running_vars[bn_ind],
+                    weight=upper_bn_scales[bn_ind],
+                    bias=upper_bn_shifts[bn_ind],
                     stats_id=bn_cond,
                 )
                
-                radii = (h_upper - h_lower) / 2.0
-
-                radii = self._batchnorm_layers[bn_ind].forward(
-                    radii,
-                    running_mean=torch.zeros_like(running_means[bn_ind]),
-                    running_var=running_vars[bn_ind],
-                    weight=torch.abs(bn_scales[bn_ind]),
-                    bias=torch.zeros_like(bn_shifts[bn_ind]),
-                    stats_id=bn_cond,
-                )
-
+                h_lower, h_upper = F.relu(h_lower), F.relu(h_upper)
+                h_lower, h_upper = torch.minimum(h_lower, h_upper), torch.maximum(h_lower, h_upper)
+                
                 bn_ind += 1
 
-                h_lower, h_upper = h_middle - radii, h_middle + radii
-                h_lower, h_upper = F.relu(h_lower), F.relu(h_upper)
                 h_middle = (h_lower + h_upper) / 2.0
-
                 h = torch.stack([h_lower, h_middle, h_upper], dim=1)
 
             # Note, as can be seen in figure 5 of the original paper, the
@@ -808,41 +820,31 @@ class ResNetBasic(Classifier):
                         if self._use_batch_norm:
                             bn_short = len(self._batchnorm_layers) - 4 + i
 
-                            # shortcut_h = self._batchnorm_layers[bn_short].forward(
-                            #     shortcut_h,
-                            #     running_mean=running_means[bn_short],
-                            #     running_var=running_vars[bn_short],
-                            #     weight=bn_scales[bn_short],
-                            #     bias=bn_shifts[bn_short],
-                            #     stats_id=bn_cond,
-                            # )
-
                             shortcut_h_lower, shortcut_h_middle, shortcut_h_upper = parse_logits(shortcut_h)
 
-                            shortcut_h_middle = self._batchnorm_layers[bn_short].forward(
-                                shortcut_h_middle,
+                            shortcut_h_lower = self._batchnorm_layers[bn_short].forward(
+                                shortcut_h_lower,
                                 running_mean=running_means[bn_short],
                                 running_var=running_vars[bn_short],
-                                weight=bn_scales[bn_short],
-                                bias=bn_shifts[bn_short],
+                                weight=lower_bn_scales[bn_short],
+                                bias=lower_bn_shifts[bn_short],
+                                stats_id=bn_cond,
+                            )
+
+                            shortcut_h_upper = self._batchnorm_layers[bn_short].forward(
+                                shortcut_h_upper,
+                                running_mean=running_means[bn_short],
+                                running_var=running_vars[bn_short],
+                                weight=upper_bn_scales[bn_short],
+                                bias=upper_bn_shifts[bn_short],
                                 stats_id=bn_cond,
                             )
                         
-                            shortcut_radii = (shortcut_h_upper - shortcut_h_lower) / 2.0
-
-                            shortcut_radii = self._batchnorm_layers[bn_short].forward(
-                                                    shortcut_radii,
-                                                    running_mean=torch.zeros_like(running_means[bn_short]),
-                                                    running_var=running_vars[bn_short],
-                                                    weight=torch.abs(bn_scales[bn_short]),
-                                                    bias=torch.zeros_like(bn_shifts[bn_short]),
-                                                    stats_id=bn_cond,
-                                                )
-
-                            shortcut_h_lower, shortcut_h_upper = shortcut_h_middle - shortcut_radii, shortcut_h_middle + shortcut_radii
+                
                             shortcut_h_lower, shortcut_h_upper = F.relu(shortcut_h_lower), F.relu(shortcut_h_upper)
-                            shortcut_h_middle = (shortcut_h_lower + shortcut_h_upper)/2.0
-
+                            shortcut_h_lower, shortcut_h_upper = torch.minimum(shortcut_h_lower, shortcut_h_upper), torch.maximum(shortcut_h_lower, shortcut_h_upper)
+                            
+                            shortcut_h_middle = (shortcut_h_lower + shortcut_h_upper) / 2.0
                             shortcut_h = torch.stack([shortcut_h_lower, shortcut_h_middle, shortcut_h_upper], dim=1)
 
                     else:
