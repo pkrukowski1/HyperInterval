@@ -17,8 +17,7 @@ from IntervalNets.interval_modules import (
     IntervalDropout,
     IntervalConv2d,
     IntervalMaxPool2d,
-    IntervalLinear,
-    parse_logits
+    IntervalLinear
 )
 
 # from main import parse_logits

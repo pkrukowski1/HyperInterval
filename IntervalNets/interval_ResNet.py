@@ -21,7 +21,6 @@ from IntervalNets.interval_modules import (
     IntervalConv2d,
     IntervalMaxPool2d,
     IntervalAvgPool2d,
-    IntervalBatchNormLayer,
     IntervalLinear,
     parse_logits
 )
@@ -557,9 +556,13 @@ class ResNetBasic(Classifier):
         ### Split batchnorm weights layer-wise.
         if self._use_batch_norm:
             lbw = 2 * len(self.batchnorm_layers)
-
+            
             bn_weights = middle_int_weights[:lbw]
+
+            lower_int_weights  = lower_int_weights[lbw:]
             middle_int_weights = middle_int_weights[lbw:]
+            upper_int_weights  = upper_int_weights[lbw:]
+
             bn_meta = int_meta[:lbw]
             int_meta = int_meta[lbw:]
 
@@ -700,14 +703,6 @@ class ResNetBasic(Classifier):
             nonlocal layer_ind, cm_ind, bn_ind
 
             if not no_conv:
-                # h = F.conv2d(
-                #     h,
-                #     middle_layer_weights[layer_ind],
-                #     bias=middle_layer_biases[layer_ind],
-                #     stride=stride,
-                #     padding=padding,
-                # )
-                # layer_ind += 1
 
                 h = IntervalConv2d.apply_conv2d(
                         h,
@@ -722,18 +717,37 @@ class ResNetBasic(Classifier):
                 )
                 layer_ind += 1
 
-
             # Batch-norm
             if self._use_batch_norm:
-                h = self._batchnorm_layers[bn_ind].forward(
-                    h,
+                h_lower, h_middle, h_upper = parse_logits(h)
+
+                h_middle = self._batchnorm_layers[bn_ind].forward(
+                    h_middle,
                     running_mean=running_means[bn_ind],
                     running_var=running_vars[bn_ind],
                     weight=bn_scales[bn_ind],
                     bias=bn_shifts[bn_ind],
                     stats_id=bn_cond,
                 )
+               
+                radii = (h_upper - h_lower) / 2.0
+
+                radii = self._batchnorm_layers[bn_ind].forward(
+                    radii,
+                    running_mean=torch.zeros_like(running_means[bn_ind]),
+                    running_var=running_vars[bn_ind],
+                    weight=torch.abs(bn_scales[bn_ind]),
+                    bias=torch.zeros_like(bn_shifts[bn_ind]),
+                    stats_id=bn_cond,
+                )
+
                 bn_ind += 1
+
+                h_lower, h_upper = h_middle - radii, h_middle + radii
+                h_lower, h_upper = F.relu(h_lower), F.relu(h_upper)
+                h_middle = (h_lower + h_upper) / 2.0
+
+                h = torch.stack([h_lower, h_middle, h_upper], dim=1)
 
             # Note, as can be seen in figure 5 of the original paper, the
             # shortcut is performed before the ReLU is applied.
@@ -793,14 +807,44 @@ class ResNetBasic(Classifier):
 
                         if self._use_batch_norm:
                             bn_short = len(self._batchnorm_layers) - 4 + i
-                            shortcut_h = self._batchnorm_layers[bn_short].forward(
-                                shortcut_h,
+
+                            # shortcut_h = self._batchnorm_layers[bn_short].forward(
+                            #     shortcut_h,
+                            #     running_mean=running_means[bn_short],
+                            #     running_var=running_vars[bn_short],
+                            #     weight=bn_scales[bn_short],
+                            #     bias=bn_shifts[bn_short],
+                            #     stats_id=bn_cond,
+                            # )
+
+                            shortcut_h_lower, shortcut_h_middle, shortcut_h_upper = parse_logits(shortcut_h)
+
+                            shortcut_h_middle = self._batchnorm_layers[bn_short].forward(
+                                shortcut_h_middle,
                                 running_mean=running_means[bn_short],
                                 running_var=running_vars[bn_short],
                                 weight=bn_scales[bn_short],
                                 bias=bn_shifts[bn_short],
                                 stats_id=bn_cond,
                             )
+                        
+                            shortcut_radii = (shortcut_h_upper - shortcut_h_lower) / 2.0
+
+                            shortcut_radii = self._batchnorm_layers[bn_short].forward(
+                                                    shortcut_radii,
+                                                    running_mean=torch.zeros_like(running_means[bn_short]),
+                                                    running_var=running_vars[bn_short],
+                                                    weight=torch.abs(bn_scales[bn_short]),
+                                                    bias=torch.zeros_like(bn_shifts[bn_short]),
+                                                    stats_id=bn_cond,
+                                                )
+
+                            shortcut_h_lower, shortcut_h_upper = shortcut_h_middle - shortcut_radii, shortcut_h_middle + shortcut_radii
+                            shortcut_h_lower, shortcut_h_upper = F.relu(shortcut_h_lower), F.relu(shortcut_h_upper)
+                            shortcut_h_middle = (shortcut_h_lower + shortcut_h_upper)/2.0
+
+                            shortcut_h = torch.stack([shortcut_h_lower, shortcut_h_middle, shortcut_h_upper], dim=1)
+
                     else:
                         raise Exception("Not implemented yet")
                         # Use padding and subsampling.
@@ -811,7 +855,7 @@ class ResNetBasic(Classifier):
                         shortcut_h = F.pad(
                             shortcut_h, (0, 0, 0, 0, pad_left, pad_right), "constant", 0
                         )
-
+                
                 if self._bottleneck_blocks:
                     h = conv_layer(h, stride, padding=0, shortcut=None)
                     stride = 1

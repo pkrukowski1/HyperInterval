@@ -12,7 +12,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import torch.optim as optim
-from hypnettorch.mnets.resnet import ResNet
+# from hypnettorch.mnets.resnet import ResNet
+from IntervalNets.interval_ResNet import ResNetBasic
 from copy import deepcopy
 import hnet_regularizer as hreg
 from datetime import datetime
@@ -711,9 +712,8 @@ def train_single_task(hypernetwork,
                                              upper_weights=upper_weights,
                                              middle_weights=target_weights,
                                              lower_weights=lower_weights)
-        
-        lower_pred, middle_pred, upper_pred = parse_logits(predictions)
 
+        lower_pred, middle_pred, upper_pred = parse_logits(predictions)
         
         # We need to check wheter the distance between the lower weights
         # and the upper weights isn't collapsed into "one point" (short interval)
@@ -800,7 +800,7 @@ def train_single_task(hypernetwork,
             elements=f'{current_no_of_task};{iteration};{loss_weights}'
             )
 
-            
+            accuracy = 0.0
             accuracy = calculate_accuracy(
                 current_dataset_instance,
                 target_network,
@@ -882,15 +882,27 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
                              dropout_rate=parameters['dropout_rate']).to(parameters['device'])
         
     elif parameters['target_network'] == 'ResNet':
-        target_network = ResNet( in_shape=(parameters["input_shape"], parameters["input_shape"], 3),
-            use_bias=parameters["use_bias"],
+        if parameters["dataset"] == "TinyImageNet":
+            mode = "tiny"
+        elif parameters["dataset"] == "CIFAR100":
+            mode = "cifar"
+        else:
+            mode = "default"
+        target_network = ResNetBasic(
+            in_shape=(parameters["input_shape"], parameters["input_shape"], 3),
+            use_bias=False,
+            use_fc_bias=parameters["use_bias"],
+            bottleneck_blocks=False,
             num_classes=output_shape,
-            n=parameters["resnet_number_of_layer_groups"],
-            k=parameters["resnet_widening_factor"],
+            num_feature_maps=[16, 16, 32, 64, 128],
+            blocks_per_group=[2, 2, 2, 2],
             no_weights=False,
             use_batch_norm=parameters["use_batch_norm"],
-            bn_track_stats=False,
-            dropout_rate=parameters['dropout_rate']).to(parameters['device'])
+            projection_shortcut=True,
+            bn_track_stats=True,
+            cutout_mod=True,
+            mode=mode,
+        ).to(parameters["device"])
 
 
     elif parameters['target_network'] == 'ZenkeNet':
@@ -900,7 +912,7 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
             architecture = "tiny"
         else:
             raise ValueError("This dataset is currently not implemented!")
-        print(f"AŁTPUT SZEJP: {output_shape}")
+
         target_network = ZenkeNet(in_shape=(parameters['input_shape'],
                                             parameters['input_shape'],
                                             3),  
@@ -1160,7 +1172,7 @@ def main_running_experiments(path_to_datasets,
 if __name__ == "__main__":
     # path_to_datasets = '/shared/sets/datasets/'
     path_to_datasets = './Data'
-    dataset = 'CIFAR100_FeCAM_setup'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet', 'CIFAR100_FeCAM_setup'
+    dataset = 'CIFAR100'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet', 'CIFAR100_FeCAM_setup'
     part = 0
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") # Generate timestamp
     create_grid_search = False
