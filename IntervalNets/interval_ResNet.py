@@ -16,14 +16,15 @@ from hypnettorch.mnets.mnet_interface import MainNetInterface
 from hypnettorch.mnets.wide_resnet import WRN
 from hypnettorch.utils.torch_utils import init_params
 
-from IntervalNets.interval_modules import (
-    IntervalBatchNormLayer,
-    IntervalConv2d,
-    IntervalLinear,
-    IntervalMaxPool2d,
-    IntervalAvgPool2d
-)
 
+from IntervalNets.interval_modules import (
+    IntervalConv2d,
+    IntervalMaxPool2d,
+    IntervalAvgPool2d,
+    IntervalBatchNormLayer,
+    IntervalLinear,
+    parse_logits
+)
 
 class ResNetBasic(Classifier):
     """Hypernet-compatible Resnets for ImageNet.
@@ -501,6 +502,11 @@ class ResNetBasic(Classifier):
         Returns:
             (torch.Tensor): The output of the network.
         """
+
+        assert lower_weights is not None and \
+                middle_weights is not None and \
+                upper_weights is not None
+
         if (
             (not self._use_context_mod and self._no_weights)
             or (self._no_weights or self._context_mod_no_weights)
@@ -516,12 +522,8 @@ class ResNetBasic(Classifier):
         # I.e., are we using internally maintained weights or externally given
         # ones or are we even mixing between these groups.
         # FIXME code mostly copied from MLP forward method.
-            
-        assert lower_weights is not None and \
-                middle_weights is not None and \
-                upper_weights is not None
 
-        lower_int_weights = None
+        lower_int_weights = None 
         middle_int_weights = None
         upper_int_weights = None
 
@@ -531,21 +533,26 @@ class ResNetBasic(Classifier):
                 or "mod_weights" in middle_weights.keys()
             )
             if "internal_weights" in middle_weights.keys():
+                lower_int_weights  = lower_weights["internal_weights"]
                 middle_int_weights = middle_weights["internal_weights"]
+                upper_int_weights  = upper_weights["internal_weights"]
         else:
             assert len(middle_weights) == len(self.param_shapes)
-            lower_int_weights  = lower_weights
+
+            lower_int_weights = lower_weights
             middle_int_weights = middle_weights
-            upper_int_weights  = upper_weights
-            
-            
-            int_shapes = self.param_shapes
-            assert len(middle_int_weights) == len(int_shapes)
-            for i, s in enumerate(int_shapes):
-                assert np.all(np.equal(s, list(middle_int_weights[i].shape)))
+            upper_int_weights = upper_weights
+
+        int_shapes = self.param_shapes
+        assert len(middle_int_weights) == len(int_shapes)
+        for i, s in enumerate(int_shapes):
+            assert np.all(np.equal(s, list(middle_int_weights[i].shape)))
 
         int_meta = self.param_shapes_meta
+
+        lower_int_weights = list(lower_int_weights)
         middle_int_weights = list(middle_int_weights)
+        upper_int_weights = list(upper_int_weights)
 
         ### Split batchnorm weights layer-wise.
         if self._use_batch_norm:
@@ -591,10 +598,8 @@ class ResNetBasic(Classifier):
 
         for i, meta in enumerate(int_meta):
             ltype = meta["name"]
-
             # Recals, layer IDs for this type of layer are `l mod 3 == 1`.
             lid = (meta["layer"] - 1) // 3
-
             if ltype == "weight":
                 lower_layer_weights[lid] = lower_int_weights[i]
                 middle_layer_weights[lid] = middle_int_weights[i]
@@ -695,6 +700,15 @@ class ResNetBasic(Classifier):
             nonlocal layer_ind, cm_ind, bn_ind
 
             if not no_conv:
+                # h = F.conv2d(
+                #     h,
+                #     middle_layer_weights[layer_ind],
+                #     bias=middle_layer_biases[layer_ind],
+                #     stride=stride,
+                #     padding=padding,
+                # )
+                # layer_ind += 1
+
                 h = IntervalConv2d.apply_conv2d(
                         h,
                         lower_weights=lower_layer_weights[layer_ind],
@@ -707,6 +721,7 @@ class ResNetBasic(Classifier):
                         padding=padding,
                 )
                 layer_ind += 1
+
 
             # Batch-norm
             if self._use_batch_norm:
@@ -740,8 +755,9 @@ class ResNetBasic(Classifier):
 
         ### The max-pooling layer at the beginning of group conv2_x.
         if not self._cutout_mod:
+            # h = F.max_pool2d(h, kernel_size=(3, 3), stride=2, padding=1)
             h = IntervalMaxPool2d.apply_max_pool2d(h, kernel_size=(3, 3), stride=2, padding=1)
-
+        
         ### 4 groups, each containing `num_blocks` resnet blocks.
         fs_prev = self._filter_sizes[0]
         for i in range(4):
@@ -760,17 +776,20 @@ class ResNetBasic(Classifier):
                     if self._projection_shortcut:
                         assert self._group_has_1x1[i]
 
+                        # shortcut_h = F.conv2d(
+                        #     h, middle_skip_1x1_weights[i], bias=None, stride=stride, padding=0
+                        # )
                         shortcut_h = IntervalConv2d.apply_conv2d(
-                                            h,
-                                            lower_weights=lower_skip_1x1_weights[i],
-                                            middle_weights=middle_skip_1x1_weights[i],
-                                            upper_weights=upper_skip_1x1_weights[i],
-                                            lower_bias=None,
-                                            middle_bias=None,
-                                            upper_bias=None,
-                                            stride=stride,
-                                            padding=0,
-                                    )
+                                    h,
+                                    lower_weights=lower_skip_1x1_weights[i],
+                                    middle_weights=middle_skip_1x1_weights[i],
+                                    upper_weights=upper_skip_1x1_weights[i],
+                                    lower_bias=None,
+                                    middle_bias=None,
+                                    upper_bias=None,
+                                    stride=stride,
+                                    padding=0,
+                            )
 
                         if self._use_batch_norm:
                             bn_short = len(self._batchnorm_layers) - 4 + i
@@ -783,7 +802,7 @@ class ResNetBasic(Classifier):
                                 stats_id=bn_cond,
                             )
                     else:
-                        raise NotImplementedError
+                        raise Exception("Not implemented yet")
                         # Use padding and subsampling.
                         pad_left = (fs_curr - fs_prev) // 2
                         pad_right = int(np.ceil((fs_curr - fs_prev) / 2))
@@ -806,19 +825,22 @@ class ResNetBasic(Classifier):
             fs_prev = fs_curr
 
         ### Average pool all activities within a feature map.
+        # h = F.avg_pool2d(h, 2)
+        # h = h.reshape(h.size(0), -1)
         h = IntervalAvgPool2d.apply_avg_pool2d(h, 2)
         h = h.rename(None)
         h = h.reshape(h.size(0), 3, -1)
 
         ### Apply final fully-connected layer and compute outputs.
+        # h = F.linear(h, middle_layer_weights[layer_ind], bias=middle_layer_biases[layer_ind])
         h = IntervalLinear.apply_linear(
             h,
-            lower_weights=lower_layer_weights[layer_ind],
-            middle_weights=middle_layer_weights[layer_ind],
             upper_weights=upper_layer_weights[layer_ind],
-            lower_bias=lower_layer_biases[layer_ind],
+            middle_weights=middle_layer_weights[layer_ind],
+            lower_weights=lower_layer_weights[layer_ind],
+            upper_bias=upper_layer_biases[layer_ind],
             middle_bias=middle_layer_biases[layer_ind],
-            upper_bias=upper_layer_biases[layer_ind]
+            lower_bias=lower_layer_biases[layer_ind]
         )
 
         return h
@@ -946,72 +968,6 @@ class ResNetBasic(Classifier):
         :meth:`mnets.mnet_interface.MainNetInterface.get_output_weight_mask`.
         """
         return WRN.get_output_weight_mask(self, out_inds=out_inds, device=device)
-    
-    def _add_batchnorm_layers(self, bn_sizes, bn_no_weights, bn_layers=None,
-                              distill_bn_stats=False, bn_track_stats=True):
-        """Add batchnorm layers to the network.
-
-        Note:
-            This method should only be called inside the constructor of any
-            class that implements this interface.
-
-        Note:
-            This method will set attributes :attr:`param_shapes_meta` and
-            :attr:`hyper_shapes_learned_ref` correctly only if they are not
-            ``None``.
-
-        Args:
-            bn_sizes (list): List of intergers denoting the feature size of
-                each batchnorm layer.
-            bn_no_weights (bool): If ``True``, batchnorm layers will be
-                generated without internal parameters :attr:`internal_params`.
-            bn_layers (list, optional): See attribute ``cm_layers`` of method
-                :meth:`_add_context_mod_layers`.
-            distill_bn_stats (bool): If ``True``, the stats shapes will be
-                appended to :attr:`hyper_shapes_distilled`.
-            bn_track_stats (bool): Will be passed as argument
-                ``track_running_stats`` to class
-                :class:`utils.batchnorm_layer.BatchNormLayer`.
-        """
-        assert bn_layers is None or len(bn_layers) == len(bn_sizes)
-
-        if self._batchnorm_layers is None and len(bn_sizes) > 0:
-            self._batchnorm_layers = torch.nn.ModuleList()
-
-        if distill_bn_stats and self._hyper_shapes_distilled is None:
-            self._hyper_shapes_distilled = []
-
-        for i, n in enumerate(bn_sizes):
-            bn_layer = IntervalBatchNormLayer(n, affine=not bn_no_weights,
-                    track_running_stats=bn_track_stats)
-            self._batchnorm_layers.append(bn_layer)
-
-            assert len(bn_layer.param_shapes) == 2
-            self.param_shapes.extend(bn_layer.param_shapes)
-            if self._param_shapes_meta is not None:
-                self._param_shapes_meta.extend([
-                    {'name': 'bn_scale',
-                     'index': -1 if bn_no_weights else \
-                         len(self._internal_params),
-                     'layer': -1 if bn_layers is None else bn_layers[i]},
-                    {'name': 'bn_shift',
-                     'index': -1 if bn_no_weights else \
-                         len(self._internal_params)+1,
-                     'layer': -1 if bn_layers is None else bn_layers[i]},
-                ])
-
-            if bn_no_weights:
-                self._hyper_shapes_learned.extend(bn_layer.param_shapes)
-                if self._hyper_shapes_learned_ref is not None:
-                    self._hyper_shapes_learned_ref.extend(range( \
-                        len(self.param_shapes)-len(bn_layer.param_shapes),
-                        len(self.param_shapes)))
-            else:
-                self._internal_params.extend(bn_layer.weights)
-
-            if distill_bn_stats:
-                self._hyper_shapes_distilled.extend( \
-                    [list(p.shape) for p in bn_layer.get_stats(0)])
 
 
 if __name__ == "__main__":
