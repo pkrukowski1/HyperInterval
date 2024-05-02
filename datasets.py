@@ -8,10 +8,11 @@ import os
 import numpy as np
 import torch
 from hypnettorch.data.special import permuted_mnist
-from DatasetHandlers.split_cifar import SplitCIFAR100Data, SplitCIFAR100Data_FeCAM
+from DatasetHandlers.split_cifar import SplitCIFAR100Data
 from DatasetHandlers.split_mnist import get_split_mnist_handlers
+from DatasetHandlers.subset_image_net import SubsetImageNet
 from DatasetHandlers.TinyImageNet import TinyImageNet
-
+from DatasetHandlers.cifar100_FeCAM import SplitCIFAR100Data_FeCAM
 
 def generate_random_permutations(shape_of_data_instance,
                                  number_of_permutations):
@@ -149,6 +150,52 @@ def prepare_split_cifar100_tasks_aka_FeCAM(
             )
         )
     return handlers
+
+
+def prepare_subset_imagenet_tasks(
+    datasets_folder: str = './',
+    validation_size: int = 50, setting: int = 1
+    ):
+    """
+    Prepare a list of *number_of_tasks* tasks related
+    to the SubsetImageNet dataset according to the WSN setup.
+
+    Arguments:
+    ----------
+      *datasets_folder*: (string) Defines a path in which Subset ImageNet
+                         is stored / will be downloaded 
+      *validation_size*: (optional int) defines the number of validation
+                         samples in each task, by default it is 250 like
+                         in the case of WSN
+      *setting*: (optional int) defines the number and type of continual
+                            learning tasks
+    
+    Returns a list of SubsetImageNet objects.
+    """
+
+    if setting == 1:
+        number_of_tasks = 6
+    elif setting == 2:
+        number_of_tasks = 11
+    elif setting == 3:
+        number_of_tasks = 21
+    elif setting == 4:
+        number_of_tasks = 5
+    else:
+        raise(NotImplementedError)
+
+    handlers = []
+    for i in range(number_of_tasks):
+        handlers.append(
+            SubsetImageNet(
+                path=datasets_folder,
+                validation_size=validation_size,
+                use_one_hot=False,
+                use_data_augmentation=True,
+                task_id = i,
+                setting = setting
+            )
+        )
 
 
 def prepare_permuted_mnist_tasks(datasets_folder,
@@ -318,7 +365,7 @@ def set_hyperparameters(dataset,
 
         # Both in the grid search and individual runs
         hyperparams['lr_scheduler'] = False
-        hyperparams['number_of_iterations'] = 5000
+        hyperparams['number_of_iterations'] = 10
         hyperparams['number_of_epochs'] = None
         hyperparams['no_of_validation_samples'] = 500
         hyperparams['target_hidden_layers'] = [1000, 1000]
@@ -333,7 +380,7 @@ def set_hyperparameters(dataset,
         # Directly related to the MNIST dataset
         hyperparams['padding'] = 2
         hyperparams['shape'] = (28 + 2 * hyperparams['padding'])**2
-        hyperparams['number_of_tasks'] = 10
+        hyperparams['number_of_tasks'] = 3
         hyperparams['augmentation'] = False
 
 

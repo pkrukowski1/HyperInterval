@@ -645,14 +645,6 @@ def train_single_task(hypernetwork,
         previous_hnet_theta = None
         previous_hnet_embeddings = None
 
-        # Regularize hypernetwork's output. Hypernetwork has an access to weights
-        # learned during previous task, so returned targets are targets returned
-        # by the condition of the previously learned weights.
-        lower_reg_targets, middle_reg_targets, upper_reg_targets = hreg.get_current_targets(
-                                                                            task_id=current_no_of_task,
-                                                                            hnet=hypernetwork,
-                                                                            eps=parameters["perturbated_epsilon"])
-
         # Save previous hnet weights
         hypernetwork._prev_hnet_weights = deepcopy(hypernetwork.unconditional_params)
 
@@ -672,11 +664,25 @@ def train_single_task(hypernetwork,
                 parameters['number_of_epochs']
             )
         # Scheduler can be set only when the number of epochs is given
-        if parameters['lr_scheduler']:
+        # Scheduler can be set only when the number of epochs is given
+        if parameters["lr_scheduler"]:
             current_epoch = 0
+            if parameters["target_network"] == "ResNet":
+                patience = 6
+                factor = 0.5
+                min_lr = 1e-6
+            else:
+                patience = 5
+                factor = np.sqrt(0.1)
+                min_lr = 0.5e-6
             plateau_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer, 'max', factor=np.sqrt(0.1), patience=5,
-                min_lr=0.5e-6, cooldown=0, verbose=True
+                optimizer,
+                "max",
+                factor=factor,
+                patience=patience,
+                min_lr=min_lr,
+                cooldown=0,
+                verbose=True,
             )
 
     iterations_to_adjust = (parameters["number_of_iterations"] // 2)
@@ -739,7 +745,14 @@ def train_single_task(hypernetwork,
         loss_regularization = 0.
 
         if current_no_of_task > 0:
-        
+            # Regularize hypernetwork's output. Hypernetwork has an access to weights
+            # learned during previous task, so returned targets are targets returned
+            # by the condition of the previously learned weights.
+            lower_reg_targets, middle_reg_targets, upper_reg_targets = hreg.get_current_targets(
+                                                                                task_id=current_no_of_task,
+                                                                                hnet=hypernetwork,
+                                                                                eps=eps)
+
             loss_regularization = hreg.calc_fix_target_reg(
                 hypernetwork, current_no_of_task,
                 lower_targets=lower_reg_targets,
@@ -747,7 +760,7 @@ def train_single_task(hypernetwork,
                 upper_targets=upper_reg_targets,
                 mnet=target_network, prev_theta=previous_hnet_theta,
                 prev_task_embs=previous_hnet_embeddings,
-                eps=parameters["perturbated_epsilon"]
+                eps=eps
             )
         
         # Calculate total loss
