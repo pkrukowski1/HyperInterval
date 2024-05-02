@@ -264,9 +264,6 @@ class IntervalConv2d(nn.Conv2d, IntervalModuleWithWeights):
             upper = upper + b_upper.view(1, b_upper.size(0), 1, 1)
             middle = middle + b_middle.view(1, b_middle.size(0), 1, 1)
 
-        assert (lower <= middle).all(), "Lower bound must be less than or equal to middle bound."
-        assert (middle <= upper).all(), "Middle bound must be less than or equal to upper bound."
-
         # Safety net for rare numerical errors.
         if not (lower <= middle).all():
             diff = torch.where(lower > middle, lower - middle, torch.zeros_like(middle)).abs().sum()
@@ -276,6 +273,9 @@ class IntervalConv2d(nn.Conv2d, IntervalModuleWithWeights):
             diff = torch.where(middle > upper, middle - upper, torch.zeros_like(middle)).abs().sum()
             print(f"Middle bound must be less than or equal to upper bound. Diff: {diff}")
             upper = torch.where(middle > upper, middle, upper)
+
+        assert (lower <= middle).all(), "Lower bound must be less than or equal to middle bound."
+        assert (middle <= upper).all(), "Middle bound must be less than or equal to upper bound."
 
         return torch.stack([lower, middle, upper], dim=1).refine_names("N", "bounds", "C", "H", "W")  # type: ignore
     
