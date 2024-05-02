@@ -4,458 +4,237 @@ consists of 100 randomly chosen classes with taken 1993 seed.
 
 """
 
-import os
-import numpy as np
-import time
-import glob
 import torch
-import platform
-import urllib.request
-from zipfile import ZipFile
-from hypnettorch.data.dataset import Dataset
-import torchvision.transforms as transforms
-from skimage import io
-from skimage.color import gray2rgb
+import numpy as np
+import random  # may be useful for validation data split
+import matplotlib.pyplot as plt
+
+from torchvision import transforms
+from torch.utils.data import Dataset, Subset, DataLoader
+from torchvision.datasets import ImageFolder
 
 
 class SubsetImageNet(Dataset):
-    _DOWNLOAD_PATH = "https://www.kaggle.com/datasets/arjunashok33/imagenet-subset-for-inc-learn/download?datasetVersionNumber=1"
-    _DOWNLOAD_FILE = "archive.zip"
-    # _EXTRACTED_FOLDER = "seed_1993_subset_100_imagenet"
-    _EXTRACTED_FOLDER = "imagenet100"
 
-    def __init__(
-        self,
-        data_path,
-        use_one_hot=False,
-        use_data_augmentation=False,
-        validation_size=250,
-        seed=1,
-        labels=[i for i in range(20)],
-    ):
+
+    def __init__(self, path: str = "./seed_1993_subset_100_imagenet/data", 
+                use_one_hot: bool = False,
+                use_data_augmentation: bool = False, 
+                validation_size: int = 100,
+                task_id: int = 0,
+                setting: int = 1):
+        
+        assert validation_size <= 250
+
         super().__init__()
-        self.data_path = data_path
-        self._labels = labels
-        self._use_one_hot = use_one_hot
-        self._seed = seed
-        self._validation_size = validation_size
-        self._system = platform.system()
-        start = time.time()
-        print("Reading SubsetImageNet dataset...")
 
-        if not os.path.exists(self.data_path):
-            print(f"Creating directory: {self.data_path}")
-            os.makedirs(self.data_path, exist_ok=True)
-
-        self.extracted_data_dir = os.path.join(
-            self.data_path, SubsetImageNet._EXTRACTED_FOLDER
-        )
         self._data = dict()
-        self._data["subsetimagenet"] = dict()
-        # If data has been processed before
-        build_from_scratch = True
-        if os.path.exists(self.extracted_data_dir):
-            build_from_scratch = False
+        self._path = path
+        self._train_path = f"{path}/train"
+        self._test_path = f"{path}/val"
+        self._labels = np.arange(100)
+        self._use_one_hot = use_one_hot
+        self._use_data_augmentation = use_data_augmentation
+        self._validation_size = validation_size
+        self._setting = setting
 
-        if build_from_scratch:
-            archive_fn = os.path.join(
-                self.data_path, SubsetImageNet._DOWNLOAD_FILE
-            )
-            print(archive_fn)
-
-            if not os.path.exists(self.extracted_data_dir):
-                print(f"Extracted data dir: {self.extracted_data_dir}")
-                print("Downloading dataset...")
-                urllib.request.urlretrieve(
-                    (
-                        f"{SubsetImageNet._DOWNLOAD_PATH}"
-                        f"{SubsetImageNet._DOWNLOAD_FILE}"
-                    ),
-                    archive_fn,
-                )
-                zf = ZipFile(archive_fn, "r")
-                zf.extractall(path=self.data_path)
-                zf.close()
-                os.remove(archive_fn)
-
-        print("Data extracted!")
-
-        self._data["classification"] = True
-        self._data["sequence"] = False
-        self._data["num_classes"] = 20
-        self._data["is_one_hot"] = use_one_hot
-        self._data["in_shape"] = [64, 64, 3]
-        self._data["out_shape"] = [20 if use_one_hot else 1]
-
-        # Prepare IDs of consecutive classes
-        # TODO: Create the wnids.txt file with the corresponding labels
-        self.ids = {}
-        for i, line in enumerate(
-            open(f"{self.data_path}/{self._EXTRACTED_FOLDER}/data/wnids.txt", "r")
-        ):
-            self.ids[line.replace("\n", "")] = i
-
-        # Transform labels to the shape proper for neural networks
-        
-        self._translate_labels()
-        (
-            self.train_data,
-            self.train_labels,
-        ) = self.prepare_training_test_set_with_labels(mode="train")
-        (
-            self.test_data,
-            self.test_labels,
-        ) = self.prepare_training_test_set_with_labels(mode="test")
-        if self._use_one_hot:
-            self.train_labels = self._to_one_hot(
-                self.train_labels, reverse=False
-            )
-            self.test_labels = self._to_one_hot(self.test_labels, reverse=False)
-
-        
-        # Standardization should be performed both in the case of augmented
-        # and non-augmented datasets
-        (
-            self.train_transform,
-            self.test_transform,
-        ) = self.torch_input_transforms()
-        if not use_data_augmentation:
-            self.train_transform = self.test_transform
-        # Prepare training, validation and test sets
-        self._prepare_train_val_test_set()
-        # Check whether the dataset was initialized properly
-        self._validity_control()
-        end = time.time()
-        print(f"Elapsed time to read dataset: {end-start} sec.")
-
-    def torch_input_transforms(self):
-        """
-        Prepare data standarization, and potentially also augmentation,
-        for TinyImageNet images.
-
-        Data augmentation is implemented as in
-        https://github.com/ihaeyong/WSN/blob/main/dataloader/idataset.py.
-
-        Returns:
-        --------
-        A tuple containing **train_transform** that applies standarization
-        and random image transformations and **test_transform** that applies
-        only data standarization.
-        """
-        test_transform = transforms.Compose(
+        self._test_transform = transforms.Compose(
             [
-                transforms.ToPILImage("RGB"),
-                transforms.ToTensor(),
-                # transforms.Normalize(
-                #     (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
-                # ),
-            ]
-        )
-
-        train_transform = transforms.Compose(
-            [
-                transforms.ToPILImage("RGB"),
-                transforms.RandomCrop(64, padding=4),
-                transforms.RandomHorizontalFlip(),
                 transforms.Resize((64, 64)),
                 transforms.ToTensor(),
-                # transforms.Normalize(
-                #     (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
-                # ),
+                transforms.Lambda(lambda x: torch.permute(x, (1, 2, 0)))
             ]
         )
-
-        return train_transform, test_transform
-
-    def plot_sample(self):
-        pass
-
-    def get_identifier(self):
-        return "TinyImageNet"
-
-    def _plot_sample(self):
-        pass
-
-    def input_to_torch_tensor(
-        self,
-        x,
-        device,
-        mode="inference",
-        force_no_preprocessing=False,
-        sample_ids=None,
-    ):
-        """
-        Prepare mapping of Numpy arrays to PyTorch tensors.
-        This method overwrites the method from the base class.
-        The input data are preprocessed (data standarization).
-
-        Arguments:
-        ----------
-            (....): See docstring of method
-                :meth:`data.dataset.Dataset.input_to_torch_tensor`.
-
-        Returns:
-            (torch.Tensor): The given input ``x`` as PyTorch tensor.
-        """
-        if not force_no_preprocessing:
-            if mode == "inference":
-                transform = self.test_transform
-            elif mode == "train":
-                transform = self.train_transform
-            else:
-                raise ValueError(
-                    f"{mode} is not a valid value for the" "argument 'mode'."
-                )
-            return SubsetImageNet.torch_preprocess_images(x, device, transform)
-
-        else:
-            return Dataset.input_to_torch_tensor(
-                self,
-                x,
-                device,
-                mode=mode,
-                force_no_preprocessing=force_no_preprocessing,
-                sample_ids=sample_ids,
+        
+        if self._use_data_augmentation:
+            self._train_transform = transforms.Compose(
+                [
+                    # transforms.RandomCrop(64, padding=4),  # ERROR: input image size (62, 80)
+                    transforms.RandomHorizontalFlip(),
+                    transforms.Resize((64, 64)),
+                    transforms.ToTensor(),
+                    transforms.Lambda(lambda x: torch.permute(x, (1, 2, 0)))
+                ]
             )
+        else:
+            self._train_transform = self._test_transform
+
+        if self._setting == 1:
+            self._data["num_classes"] = 50
+            self._data["num_incr_classes"] = 10
+        elif self._setting == 2:
+            self._data["num_classes"] = 50
+            self._data["num_incr_classes"] = 5
+        elif self._setting == 3:
+            self._data["num_classes"] = 40
+            self._data["num_incr_classes"] = 3
+        elif self._setting == 4:
+            self._data["num_classes"] = 20
+            self._data["num_incr_classes"] = 20
+        else:
+            raise(NotImplemented)
+
+        self.train_data, self.val_data = self._get_task(task_id = task_id, mode = 'train')
+        self.test_data                 = self._get_task(task_id = task_id, mode = 'test')
+
+
+    def _get_task(self, task_id: int = 0, mode: str = 'train'):
+        assert task_id >= 0
+        assert mode in ['train', 'test']
+        MAX_NUM_CLASSES = self._data["num_classes"]
+        INCR_NUM_CLASSES = self._data["num_incr_classes"]
+
+        if self._use_one_hot:
+            target_transform = lambda x: self._target_to_one_hot(x, task_id=task_id)
+        else:
+            target_transform = lambda x: self._calculate_modulo(x, task_id=task_id)
+
+        if mode == 'train':
+            dataset = ImageFolder(root=self._train_path, transform=self._train_transform, target_transform=target_transform)
+        elif mode == 'test':
+            dataset = ImageFolder(root=self._test_path, transform=self._test_transform, target_transform=target_transform)
+
+        if task_id == 0:
+            curr_task_labels = self._labels[task_id*MAX_NUM_CLASSES: (task_id+1)*MAX_NUM_CLASSES]
+        else:
+            curr_task_labels = self._labels[MAX_NUM_CLASSES + (task_id-1)*INCR_NUM_CLASSES : MAX_NUM_CLASSES + task_id*INCR_NUM_CLASSES]
+
+        if mode == 'train': 
+            print(f'Order of classes in the current task: {curr_task_labels}')
+            print('Preparing task images and labels...')
+
+            val_map = {target: [] for target in curr_task_labels}
+            val_map['all'] = []
+
+            # per each label in task, gather first self._validation_size number of instances
+            for j, label in enumerate(dataset.targets):
+                if label in curr_task_labels and len(val_map[label]) < self._validation_size:
+                    val_map[label] += [j]
+                    val_map['all'] += [j]  # gather all validation indices in one list
+
+            indices = [j for j, label in enumerate(dataset.targets) if label in curr_task_labels and j not in val_map[label]]
+            val_ds = Subset(dataset, val_map['all'])
+            train_ds = Subset(dataset, indices)
+            del val_map
+            print('Done!')
+            return train_ds, val_ds
+        else:
+            indices = [j for j, label in enumerate(dataset.targets) if label in curr_task_labels]
+            test_ds = Subset(dataset, indices)
+            return test_ds
+        
+        # for saving task specific images and labels in memory:
+        # indices = [j for j, label in enumerate(dataset.targets) if label in curr_task_labels]
+        # ds = Subset(dataset, indices)
+        ## images = np.array([elem[0] for elem in ds])
+        ## labels = np.array([elem[1] for elem in ds])
+        # return images, labels
+    
+
+    def _get_train_val_split(self):
+        pass
+
+
+    def get_identifier(self) -> str:
+        """Returns the name of the dataset."""
+        return "SubsetImageNet"
+    
+    
+    def _calculate_modulo(self, target: int, task_id: int) -> int:
+        MAX_NUM_CLASSES = self._data["num_classes"]
+        INCR_NUM_CLASSES = self._data["num_incr_classes"]
+        if task_id == 0:
+            target = target % MAX_NUM_CLASSES
+        else:
+            target = target % INCR_NUM_CLASSES
+        return target
+
+
+    def _target_to_one_hot(self, target: int, task_id: int) -> torch.Tensor:
+        target = self._calculate_modulo(target, task_id=task_id)
+        one_hot = torch.eye(self._data["num_classes"])[target]
+        return one_hot
+    
 
     @staticmethod
-    def torch_preprocess_images(x, device, transform, img_shape=[64, 64, 3]):
-        """
-        Prepare preprocessing of TinyImageNet images with a selected
-        PyTorch transformation.
+    def plot_sample(image, label):
+        plt.imshow(image.numpy())
+        if isinstance(label, torch.Tensor):
+            plt.title(f'Class: {label.argmax().item()}')
+        elif isinstance(label, int):
+            plt.title(f'Class: {label}')
+        plt.axis("off")
+        plt.show()
 
-        Arguments:
-        ----------
-            x (Numpy array): 2D array containing TinyImageNet images.
-            device (torch.device or int): PyTorch device on which a final
-                                          tensor will be moved
-            transform: (torchvision.transforms): a method of data modification
+def prepare_subset_imagenet_tasks(
+    datasets_folder: str = './',
+    validation_size: int = 50, setting: int = 1
+    ):
+    """
+    Prepare a list of *number_of_tasks* tasks related
+    to the SubsetImageNet dataset according to the WSN setup.
 
-        Returns:
-        --------
-            (torch.Tensor): The preprocessed images as PyTorch tensor.
-        """
-        assert len(x.shape) == 2
-        # First dimension is related to batch size and second is related
-        # to the flattened image.
-        x = (x * 255.0).astype("uint8")
-        x = x.reshape(-1, *img_shape)
-        x = torch.stack([transform(x[i, ...]) for i in range(x.shape[0])]).to(
-            device
-        )
-        x = x.permute(0, 2, 3, 1)
-        x = x.contiguous().view(-1, np.prod(img_shape))
-        return x
+    Arguments:
+    ----------
+      *datasets_folder*: (string) Defines a path in which Subset ImageNet
+                         is stored / will be downloaded 
+      *validation_size*: (optional int) defines the number of validation
+                         samples in each task, by default it is 250 like
+                         in the case of WSN
+      *setting*: (optional int) defines the number and type of continual
+                            learning tasks
+    
+    Returns a list of SubsetImageNet objects.
+    """
 
-    def prepare_training_test_set_with_labels(self, mode="train"):
-        """
-        Function implemented on the basis of:
-        https://github.com/pytorch/vision/issues/6127#issuecomment-1555049003
+    if setting == 1:
+        number_of_tasks = 6
+    elif setting == 2:
+        number_of_tasks = 11
+    elif setting == 3:
+        number_of_tasks = 21
+    elif setting == 4:
+        number_of_tasks = 5
+    else:
+        raise(NotImplementedError)
 
-        Arguments:
-        ----------
-           *mode* (optional string) 'train' for the training set or 'test'
-                  for the validation set
-        """
-
-        assert mode in ["train", "test"]
-        data, labels = [], []
-        if mode == "train":
-            filenames = glob.glob(
-                f"{self.data_path}/{self._EXTRACTED_FOLDER}/data/train/*/*.JPEG"
+    handlers = []
+    for i in range(number_of_tasks):
+        handlers.append(
+            SubsetImageNet(
+                path=datasets_folder,
+                validation_size=validation_size,
+                use_one_hot=True,
+                use_data_augmentation=True,
+                task_id = i,
+                setting = setting
             )
-        elif mode == "test":
-            filenames = glob.glob(
-                f"{self.data_path}/{self._EXTRACTED_FOLDER}/data/val/*/*.JPEG"
-            )
-            
-        for file in filenames:
-            image = io.imread(file)
-            if len(image.shape) == 2:  # gray-scale
-                image = gray2rgb(image)
-            image = image / 255
-
-            if self._system == 'Windows':
-                label = self.ids[file.split("\\")[-2]]
-            elif self._system in ['Linux', 'Darwin']:
-                label = self.ids[file.split("/")[-2]]
-            else:
-                raise(NotImplementedError)
-
-            # Add to the image only cases which are from the desired class
-            if label in self._labels:
-                label = self.translate_real_label_to_temp_label[label]
-                image = image.reshape(np.prod(image.shape))
-                data.append(image)
-                labels.append([label])
-        data = np.vstack(data)
-        labels = np.array(labels)
-
-        print(f"LEJBELS DONE")
-
-        # 100 classes in TinyImageNet
-        assert np.min(np.squeeze(labels)) == np.min(
-            list(self.translate_temp_label_to_real_labels.keys())
-        )
-        assert np.max(np.squeeze(labels)) == np.max(
-            list(self.translate_temp_label_to_real_labels.keys())
-        )
-        return data, labels
-
-    def _prepare_train_val_test_set(self):
-        """
-        Prepares a stratified selection of the training and validation set.
-        Also, prepares a final version of the test set and filles keys
-        necessary for further calculations.
-        """
-        if self._validation_size > 0:
-            no_of_classes = len(self._labels)
-            if self._validation_size < 1:
-                # We assume that the number of samples from each class
-                # is exactly the same
-                no_of_samples = self.train_data.shape[0] / 5
-                self._no_of_val_samples = int(
-                    no_of_classes * self._validation_size * no_of_samples
-                )
-            else:
-                self._no_of_val_samples = self._validation_size
-
-            (
-                self._data["train_inds"],
-                self._data["val_inds"],
-            ) = self._select_val_indices(no_of_classes)
-
-        else:
-            self.train_labels = self.train_labels.squeeze()
-            self._data["train_inds"] = np.arange(0, self.train_labels.shape[0])
-
-        self._data["test_inds"] = np.arange(
-            self.train_labels.shape[0],
-            self.train_labels.shape[0] + self.test_labels.shape[0],
         )
 
-        self._data["in_data"] = np.concatenate(
-            [self.train_data, self.test_data]
-        )
-        del self.train_data
-        del self.test_data
+    return handlers
+if __name__ == "__main__":
 
-        if not self._use_one_hot:
-            self.train_labels = np.expand_dims(self.train_labels, axis=1)
-        self._data["out_data"] = np.concatenate(
-            [self.train_labels, self.test_labels]
-        )
-        del self.train_labels
-        del self.test_labels
+    path = './Data/imagenet100'
+    data = prepare_subset_imagenet_tasks(datasets_folder=path, setting = 4)
 
-    def _select_val_indices(self, no_of_classes):
-        """
-        Prepare a selection of train and validation sets with memory saving!
-        TinyImageNet is a large dataset, therefore solutions need to be
-        memory-efficient.
+    for task in data:
+        train_dl = DataLoader(task.train_data, batch_size=10, shuffle=False)
+        valid_dl = DataLoader(task.val_data, batch_size=10, shuffle=False)
+        test_dl = DataLoader(task.test_data, batch_size=10, shuffle=False)
+        break
 
-        Args:
-        -----
-          *no_of_classes*: (int) number of classes in the dataset
+    for images, labels in test_dl:
+        break
 
-        Returns:
-        --------
-          *train_indices*: (list) contains indices of elements in the training
-                           set
-          *test_indices*: (list) contains indices of elements in the test set
-        """
-        # 40 is the number of tasks
-        self._no_of_val_samples_per_class = int(
-            self._no_of_val_samples / no_of_classes
-        )
-        if not self._use_one_hot:
-            self.train_labels = self.train_labels.squeeze()
-            train_labels_for_val_separation = self.train_labels
-        else:
-            train_labels_for_val_separation = self._to_one_hot(
-                self.train_labels, reverse=True
-            ).squeeze()
-        unique_classes = np.unique(train_labels_for_val_separation)
-        class_positions = {}
-        for no_of_class in unique_classes:
-            class_positions[no_of_class] = np.argwhere(
-                train_labels_for_val_separation == no_of_class
-            )
+    for img, lab in valid_dl:
+        break
 
-        np.random.seed(self._seed)
-        train_indices, val_indices = [], []
-        for cur_class in list(class_positions.keys()):
-            perm = np.random.permutation(class_positions[cur_class])
-            cur_class_val_indices = perm[: self._no_of_val_samples_per_class]
-            cur_class_train_indices = perm[self._no_of_val_samples_per_class :]
-            train_indices.extend(list(cur_class_train_indices.flatten()))
-            val_indices.extend(list(cur_class_val_indices.flatten()))
-        return np.array(train_indices), np.array(val_indices)
-
-    def _validity_control(self):
-        """
-        Control whether the set was prepared according to the desired hyperparams.
-        """
-        # Test set: 5 classes, 50 samples per class
-        assert self._data["test_inds"].shape[0] == 250
-        # Total number of samples: 250 in test set (50 * 5)
-        # and 500 * 5 in the concatenated training/validation sets.
-        if not self._use_one_hot:
-            labels_squeezed = self._data["out_data"].squeeze()
-        else:
-            labels_squeezed = self._to_one_hot(
-                self._data["out_data"], reverse=True
-            ).squeeze()
-        assert labels_squeezed.shape[0] == 2750
-        assert self._data["in_data"].shape[0] == 2750
-        assert self._data["in_data"].shape[1] == 12288
-        # 64 * 64 * 3 = 12288
-        # 2250 examples
-        # Control test set
-        test_labels = labels_squeezed[self._data["test_inds"]]
-        temporary_labels = list(self.translate_temp_label_to_real_labels.keys())
-        for label in temporary_labels:
-            assert np.count_nonzero(test_labels == label) == 50
-        # Control validation set
-        if self._validation_size > 0:
-            assert self._data["val_inds"].shape[0] == self._no_of_val_samples
-            val_labels = labels_squeezed[self._data["val_inds"]]
-            for label in temporary_labels:
-                assert (
-                    np.count_nonzero(val_labels == label)
-                    == self._no_of_val_samples_per_class
-                )
-        # Control train set
-        train_labels = labels_squeezed[self._data["train_inds"]]
-        no_of_train_samples_per_class = train_labels.shape[0] / 5
-        for label in temporary_labels:
-            assert (
-                np.count_nonzero(train_labels == label)
-                == no_of_train_samples_per_class
-            )
-
-    def _translate_labels(self):
-        """
-        Due to the fact that SubsetImageNet has 100 classes and a subset of classes
-        may be scattered across the space of labels and neural networks may be
-        less performing for a high-dimensional output vector we have to reduce the
-        output size and prepare labels in the form {0, 1, 2, ..., number of classes}.
-        However, the inverse process should be possible, i.e. to which original class
-        corresponds to current class number.
-        """
-        sorted_labels = np.sort(self._labels)
-        self.translate_temp_label_to_real_labels = dict()
-        self.translate_real_label_to_temp_label = dict()
-        for i in range(sorted_labels.shape[0]):
-            self.translate_temp_label_to_real_labels[i] = sorted_labels[i]
-            self.translate_real_label_to_temp_label[sorted_labels[i]] = i
-
-    def translate_temporary_to_real_label(self):
-        return self.translate_temp_label_to_real_labels
-
-    def translate_real_to_temporary_label(self):
-        return self.translate_real_label_to_temp_label
+    for _img, _lab in train_dl:
+        break
 
 
-if __name__ == '__main__':
-    pass
+    print(labels[-1])
+
+    SubsetImageNet.plot_sample(images[0], labels[0])
+    SubsetImageNet.plot_sample(img[0], lab[0])
+    SubsetImageNet.plot_sample(_img[0], _lab[0])
