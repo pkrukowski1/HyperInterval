@@ -73,15 +73,15 @@ def get_current_targets(task_id, hnet, eps):
 
     with torch.no_grad():
 
-        # Get weights from previous task
-        prev_weights = dict()
-        uncond_params = hnet._prev_hnet_weights
-        prev_weights['uncond_weights'] = uncond_params
+        # # Get weights from previous task
+        # prev_weights = dict()
+        # uncond_params = hnet._prev_hnet_weights
+        # prev_weights['uncond_weights'] = uncond_params
 
         W_lower, W_middle, W_upper, _ = hnet.forward(cond_id=list(range(task_id)),
                                                 ret_format='sequential',
                                                 perturbated_eps=eps,
-                                                weights=prev_weights,
+                                                # weights=prev_weights,
                                                 return_extended_output=True
                                                 )
         upper_ret  = [[p.detach() for p in W_tid] for W_tid in W_upper]

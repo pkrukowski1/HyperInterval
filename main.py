@@ -645,6 +645,14 @@ def train_single_task(hypernetwork,
         previous_hnet_theta = None
         previous_hnet_embeddings = None
 
+        # Regularize hypernetwork's output. Hypernetwork has an access to weights
+        # learned during previous task, so returned targets are targets returned
+        # by the condition of the previously learned weights.
+        lower_reg_targets, middle_reg_targets, upper_reg_targets = hreg.get_current_targets(
+                                                                            task_id=current_no_of_task,
+                                                                            hnet=hypernetwork,
+                                                                            eps=parameters["perturbated_epsilon"])
+
         # Save previous hnet weights
         hypernetwork._prev_hnet_weights = deepcopy(hypernetwork.unconditional_params)
 
@@ -731,13 +739,6 @@ def train_single_task(hypernetwork,
         loss_regularization = 0.
 
         if current_no_of_task > 0:
-            # Regularize hypernetwork's output. Hypernetwork has an access to weights
-            # learned during previous task, so returned targets are targets returned
-            # by the condition of the previously learned weights.
-            lower_reg_targets, middle_reg_targets, upper_reg_targets = hreg.get_current_targets(
-                                                                                task_id=current_no_of_task,
-                                                                                hnet=hypernetwork,
-                                                                                eps=eps)
         
             loss_regularization = hreg.calc_fix_target_reg(
                 hypernetwork, current_no_of_task,
@@ -746,7 +747,7 @@ def train_single_task(hypernetwork,
                 upper_targets=upper_reg_targets,
                 mnet=target_network, prev_theta=previous_hnet_theta,
                 prev_task_embs=previous_hnet_embeddings,
-                eps=eps
+                eps=parameters["perturbated_epsilon"]
             )
         
         # Calculate total loss
@@ -1176,7 +1177,7 @@ def main_running_experiments(path_to_datasets,
 if __name__ == "__main__":
     # path_to_datasets = '/shared/sets/datasets/'
     path_to_datasets = './Data'
-    dataset = 'PermutedMNIST'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet', 'CIFAR100_FeCAM_setup'
+    dataset = 'CIFAR100_FeCAM_setup'  # 'PermutedMNIST', 'CIFAR100', 'SplitMNIST', 'TinyImageNet', 'CIFAR100_FeCAM_setup'
     part = 0
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") # Generate timestamp
     create_grid_search = False
