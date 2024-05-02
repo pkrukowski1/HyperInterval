@@ -617,6 +617,71 @@ def set_hyperparameters(dataset,
         hyperparams["padding"] = None
         hyperparams["best_model_selection_method"] = "val_loss"
     
+    elif dataset == 'SubsetImageNet':
+        if grid_search:
+            hyperparams = {
+                "seed": [1],
+                "custom_init": [True],
+                "perturbated_epsilon": [10, 15, 20],
+                "embedding_sizes": [48, 96, 128],
+                "learning_rates": [0.001, 0.01],
+                "batch_sizes": [16, 32],
+                'dropout_rate': [-1, 0.25],
+                'embd_dropout_rate': [-1],
+                'betas': [1.0, 0.01, 0.1],
+                'hypernetworks_hidden_layers': [[100, 100], [200, 200]],
+                'resnet_number_of_layer_groups': 3,
+                'resnet_widening_factor': 2,
+                "optimizer": "adam",
+                "use_batch_norm": False,
+                "target_network": "ZenkeNet",
+                "use_chunks": False,
+                "number_of_epochs": 10,
+                "augmentation": True
+            }
+
+            hyperparams['saving_folder'] = (
+                '/shared/results/pkrukowski/HyperIntervalResults/common_embedding/grid_search_relu/'
+                f'TinyImageNet/'
+                f'part_0_ZenkeNet/'
+            )
+        else:
+            hyperparams = {
+               "seed": [1],
+               "custom_init": [True],
+                "perturbated_epsilon": [1.0],
+                "embedding_sizes": [48],
+                "learning_rates": [0.001],
+                "batch_sizes": [32],
+                'betas': [0.01],
+                'hypernetworks_hidden_layers': [[100]],
+                'resnet_number_of_layer_groups': 3,
+                'resnet_widening_factor': 2,
+                'embd_dropout_rate': [-1, 0.25],
+                'dropout_rate': [-1, 0.25, 0.5],
+                "optimizer": "adam",
+                "use_batch_norm": False,
+                "target_network": "ZenkeNet",
+                "use_chunks": False,
+                "number_of_epochs": 10,
+                "augmentation": True,
+                "saving_folder": "./Results/TinyImageNet/best_hyperparams/"
+            }
+        hyperparams["lr_scheduler"] = False
+        hyperparams["number_of_iterations"] = None
+        hyperparams["no_of_validation_samples"] = 250
+        if hyperparams["target_network"] in ["ResNet", "ZenkeNet"]:
+            hyperparams["shape"] = 64
+            hyperparams["target_hidden_layers"] = None
+        elif hyperparams["target_network"] == "MLP":
+            hyperparams["shape"] = 12288
+            hyperparams["target_hidden_layers"] = [1000, 1000]
+        hyperparams["number_of_tasks"] = 40
+        hyperparams["chunk_size"] = 100
+        hyperparams["chunk_emb_size"] = 32
+        hyperparams["padding"] = None
+        hyperparams["best_model_selection_method"] = "val_loss"
+    
     elif dataset == "CIFAR100_FeCAM_setup":
         if grid_search:
             hyperparams = {
