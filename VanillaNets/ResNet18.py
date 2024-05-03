@@ -17,15 +17,7 @@ from hypnettorch.mnets.wide_resnet import WRN
 from hypnettorch.utils.torch_utils import init_params
 
 
-from IntervalNets.interval_modules import (
-    IntervalConv2d,
-    IntervalMaxPool2d,
-    IntervalAvgPool2d,
-    IntervalLinear,
-    parse_logits
-)
-
-class IntervalResNetBasic(Classifier):
+class ResNetBasic(Classifier):
     """Hypernet-compatible Resnets for ImageNet.
 
     The architecture of those Resnets is summarized in Table 4 of
@@ -122,7 +114,7 @@ class IntervalResNetBasic(Classifier):
         mode="default",
         **kwargs
     ):
-        super(IntervalResNetBasic, self).__init__(num_classes, verbose)
+        super(ResNetBasic, self).__init__(num_classes, verbose)
 
         ### Parse or set context-mod arguments ###
         rem_kwargs = MainNetInterface._parse_context_mod_args(kwargs)
@@ -485,7 +477,7 @@ class IntervalResNetBasic(Classifier):
             )
         return self._has_bias
 
-    def forward(self, x, lower_weights=None, middle_weights=None, upper_weights=None, distilled_params=None, condition=None):
+    def forward(self, x, weights=None, distilled_params=None, condition=None):
         """Compute the output :math:`y` of this network given the input
         :math:`x`.
 
@@ -501,15 +493,10 @@ class IntervalResNetBasic(Classifier):
         Returns:
             (torch.Tensor): The output of the network.
         """
-
-        assert lower_weights is not None and \
-                middle_weights is not None and \
-                upper_weights is not None
-
         if (
             (not self._use_context_mod and self._no_weights)
             or (self._no_weights or self._context_mod_no_weights)
-        ) and middle_weights is None:
+        ) and weights is None:
             raise Exception(
                 "Network was generated without weights. "
                 + 'Hence, "weights" option may not be None.'
@@ -521,110 +508,121 @@ class IntervalResNetBasic(Classifier):
         # I.e., are we using internally maintained weights or externally given
         # ones or are we even mixing between these groups.
         # FIXME code mostly copied from MLP forward method.
+        n_cm = self._num_context_mod_shapes()
 
-        lower_int_weights = None 
-        middle_int_weights = None
-        upper_int_weights = None
+        if weights is None:
+            weights = self.weights
 
-        if isinstance(middle_weights, dict):
-            assert (
-                "internal_weights" in middle_weights.keys()
-                or "mod_weights" in middle_weights.keys()
-            )
-            if "internal_weights" in middle_weights.keys():
-                lower_int_weights  = lower_weights["internal_weights"]
-                middle_int_weights = middle_weights["internal_weights"]
-                upper_int_weights  = upper_weights["internal_weights"]
+            if self._use_context_mod:
+                cm_weights = weights[:n_cm]
+                int_weights = weights[n_cm:]
+            else:
+                cm_weights = None
+                int_weights = weights
         else:
-            assert len(middle_weights) == len(self.param_shapes)
+            int_weights = None
+            cm_weights = None
 
-            lower_int_weights = lower_weights
-            middle_int_weights = middle_weights
-            upper_int_weights = upper_weights
+            if isinstance(weights, dict):
+                assert (
+                    "internal_weights" in weights.keys()
+                    or "mod_weights" in weights.keys()
+                )
+                if "internal_weights" in weights.keys():
+                    int_weights = weights["internal_weights"]
+                if "mod_weights" in weights.keys():
+                    cm_weights = weights["mod_weights"]
+            else:
+                if self._use_context_mod and len(weights) == n_cm:
+                    cm_weights = weights
+                else:
+                    assert len(weights) == len(self.param_shapes)
+                    if self._use_context_mod:
+                        cm_weights = weights[:n_cm]
+                        int_weights = weights[n_cm:]
+                    else:
+                        int_weights = weights
 
-        int_shapes = self.param_shapes
-        assert len(middle_int_weights) == len(int_shapes)
-        for i, s in enumerate(int_shapes):
-            assert np.all(np.equal(s, list(middle_int_weights[i].shape)))
+            if self._use_context_mod and cm_weights is None:
+                if self._context_mod_no_weights:
+                    raise Exception(
+                        "Network was generated without weights "
+                        + "for context-mod layers. Hence, they must be passed "
+                        + 'via the "weights" option.'
+                    )
+                cm_weights = self.weights[:n_cm]
+            if int_weights is None:
+                if self._no_weights:
+                    raise Exception(
+                        "Network was generated without internal "
+                        + "weights. Hence, they must be passed via the "
+                        + '"weights" option.'
+                    )
+                if self._context_mod_no_weights:
+                    int_weights = self.weights
+                else:
+                    int_weights = self.weights[n_cm:]
 
-        int_meta = self.param_shapes_meta
+            # Note, context-mod weights might have different shapes, as they
+            # may be parametrized on a per-sample basis.
+            if self._use_context_mod:
+                assert len(cm_weights) == self._num_context_mod_shapes()
+            int_shapes = self.param_shapes[n_cm:]
+            assert len(int_weights) == len(int_shapes)
+            for i, s in enumerate(int_shapes):
+                assert np.all(np.equal(s, list(int_weights[i].shape)))
 
-        lower_int_weights = list(lower_int_weights)
-        middle_int_weights = list(middle_int_weights)
-        upper_int_weights = list(upper_int_weights)
+        ### Split context-mod weights per context-mod layer.
+        if cm_weights is not None:
+            cm_weights_layer = []
+            cm_start = 0
+            for cm_layer in self.context_mod_layers:
+                cm_end = cm_start + len(cm_layer.param_shapes)
+                cm_weights_layer.append(cm_weights[cm_start:cm_end])
+                cm_start = cm_end
 
+        int_meta = self.param_shapes_meta[n_cm:]
+        int_weights = list(int_weights)
         ### Split batchnorm weights layer-wise.
         if self._use_batch_norm:
             lbw = 2 * len(self.batchnorm_layers)
-            
-            lower_bn_weights = lower_int_weights[:lbw]
-            middle_bn_weights = middle_int_weights[:lbw]
-            upper_bn_weights = upper_int_weights[:lbw]
 
-            lower_int_weights  = lower_int_weights[lbw:]
-            middle_int_weights = middle_int_weights[lbw:]
-            upper_int_weights  = upper_int_weights[lbw:]
-
+            bn_weights = int_weights[:lbw]
+            int_weights = int_weights[lbw:]
             bn_meta = int_meta[:lbw]
             int_meta = int_meta[lbw:]
 
-            lower_bn_scales = []
-            lower_bn_shifts = []
-
-            middle_bn_scales = []
-            middle_bn_shifts = []
-
-            upper_bn_scales = []
-            upper_bn_shifts = []
+            bn_scales = []
+            bn_shifts = []
 
             for i in range(len(self.batchnorm_layers)):
                 assert bn_meta[2 * i]["name"] == "bn_scale"
-                lower_bn_scales.append(lower_bn_weights[2 * i])
-                middle_bn_scales.append(middle_bn_weights[2 * i])
-                upper_bn_scales.append(upper_bn_weights[2 * i])
-
+                bn_scales.append(bn_weights[2 * i])
                 assert bn_meta[2 * i + 1]["name"] == "bn_shift"
-                lower_bn_shifts.append(lower_bn_weights[2 * i + 1])
-                middle_bn_shifts.append(middle_bn_weights[2 * i + 1])
-                upper_bn_shifts.append(upper_bn_weights[2 * i + 1])
+                bn_shifts.append(bn_weights[2 * i + 1])
 
         ### Split internal weights layer-wise.
         # Weights of skip connections.
         n_skip_1x1 = np.sum(self._group_has_1x1)
-        lower_skip_1x1_weights = [None] * 4
-        middle_skip_1x1_weights = [None] * 4
-        upper_skip_1x1_weights = [None] * 4
-
+        skip_1x1_weights = [None] * 4
         for i in range(4):
             if self._group_has_1x1[i]:
-                lower_skip_1x1_weights[i] = lower_int_weights.pop(0)
-                middle_skip_1x1_weights[i] = middle_int_weights.pop(0)
-                upper_skip_1x1_weights[i] = upper_int_weights.pop(0)
+                skip_1x1_weights[i] = int_weights.pop(0)
         int_meta = int_meta[n_skip_1x1:]
 
         # Weights/biases per layer.
-        lower_layer_weights = [None] * (self._num_main_conv_layers + 1)
-        lower_layer_biases = [None] * (self._num_main_conv_layers + 1)
-
-        middle_layer_weights = [None] * (self._num_main_conv_layers + 1)
-        middle_layer_biases = [None] * (self._num_main_conv_layers + 1)
-
-        upper_layer_weights = [None] * (self._num_main_conv_layers + 1)
-        upper_layer_biases = [None] * (self._num_main_conv_layers + 1)
+        layer_weights = [None] * (self._num_main_conv_layers + 1)
+        layer_biases = [None] * (self._num_main_conv_layers + 1)
 
         for i, meta in enumerate(int_meta):
             ltype = meta["name"]
             # Recals, layer IDs for this type of layer are `l mod 3 == 1`.
             lid = (meta["layer"] - 1) // 3
             if ltype == "weight":
-                lower_layer_weights[lid] = lower_int_weights[i]
-                middle_layer_weights[lid] = middle_int_weights[i]
-                upper_layer_weights[lid] = upper_int_weights[i]
+                layer_weights[lid] = int_weights[i]
             else:
                 assert ltype == "bias"
-                lower_layer_biases[lid] = lower_int_weights[i]
-                middle_layer_biases[lid] = middle_int_weights[i]
-                upper_layer_biases[lid] = upper_int_weights[i]
+                layer_biases[lid] = int_weights[i]
 
         #######################
         ### Parse condition ###
@@ -652,6 +650,7 @@ class IntervalResNetBasic(Classifier):
             # An unelegant solution would be, to just set all
             # context-mod weights to None.
             raise NotImplementedError("CM-conditions not implemented!")
+            cm_weights_layer = [None] * len(cm_weights_layer)
 
         ######################################
         ### Select batchnorm running stats ###
@@ -716,50 +715,33 @@ class IntervalResNetBasic(Classifier):
             nonlocal layer_ind, cm_ind, bn_ind
 
             if not no_conv:
-
-                h = IntervalConv2d.apply_conv2d(
-                        h,
-                        lower_weights=lower_layer_weights[layer_ind],
-                        middle_weights=middle_layer_weights[layer_ind],
-                        upper_weights=upper_layer_weights[layer_ind],
-                        lower_bias=lower_layer_biases[layer_ind],
-                        middle_bias=middle_layer_biases[layer_ind],
-                        upper_bias=upper_layer_biases[layer_ind],
-                        stride=stride,
-                        padding=padding,
+                h = F.conv2d(
+                    h,
+                    layer_weights[layer_ind],
+                    bias=layer_biases[layer_ind],
+                    stride=stride,
+                    padding=padding,
                 )
                 layer_ind += 1
 
+            # Context-dependent modulation (pre-activation).
+            if self._use_context_mod and not self._context_mod_post_activation:
+                h = self._context_mod_layers[cm_ind].forward(
+                    h, weights=cm_weights_layer[cm_ind], ckpt_id=cmod_cond
+                )
+                cm_ind += 1
+
             # Batch-norm
             if self._use_batch_norm:
-                h_lower, h_middle, h_upper = parse_logits(h)
-
-                h_lower = self._batchnorm_layers[bn_ind].forward(
-                    h_lower,
+                h = self._batchnorm_layers[bn_ind].forward(
+                    h,
                     running_mean=running_means[bn_ind],
                     running_var=running_vars[bn_ind],
-                    weight=lower_bn_scales[bn_ind],
-                    bias=lower_bn_shifts[bn_ind],
+                    weight=bn_scales[bn_ind],
+                    bias=bn_shifts[bn_ind],
                     stats_id=bn_cond,
                 )
-
-
-                h_upper = self._batchnorm_layers[bn_ind].forward(
-                    h_upper,
-                    running_mean=running_means[bn_ind],
-                    running_var=running_vars[bn_ind],
-                    weight=upper_bn_scales[bn_ind],
-                    bias=upper_bn_shifts[bn_ind],
-                    stats_id=bn_cond,
-                )
-               
-                h_lower, h_upper = F.relu(h_lower), F.relu(h_upper)
-                h_lower, h_upper = torch.minimum(h_lower, h_upper), torch.maximum(h_lower, h_upper)
-                
                 bn_ind += 1
-
-                h_middle = (h_lower + h_upper) / 2.0
-                h = torch.stack([h_lower, h_middle, h_upper], dim=1)
 
             # Note, as can be seen in figure 5 of the original paper, the
             # shortcut is performed before the ReLU is applied.
@@ -769,21 +751,34 @@ class IntervalResNetBasic(Classifier):
             # Non-linearity
             h = F.relu(h)
 
+            # Context-dependent modulation (post-activation).
+            if self._use_context_mod and self._context_mod_post_activation:
+                h = self._context_mod_layers[cm_ind].forward(
+                    h, weights=cm_weights_layer[cm_ind], ckpt_id=cmod_cond
+                )
+                cm_ind += 1
+
             return h
 
         if not self._chw_input_format:
             x = x.view(-1, *self._in_shape)
             x = x.permute(0, 3, 1, 2)
-        h = torch.stack([x, x, x], dim=1)
+        h = x
+
+        # Context-dependent modulation of inputs directly.
+        if self._use_context_mod and self._context_mod_inputs:
+            h = self._context_mod_layers[cm_ind].forward(
+                h, weights=cm_weights_layer[cm_ind], ckpt_id=cmod_cond
+            )
+            cm_ind += 1
 
         ### Initial convolutional layer.
         h = conv_layer(h, self._init_stride, padding=self._init_padding, shortcut=None)
 
         ### The max-pooling layer at the beginning of group conv2_x.
         if not self._cutout_mod:
-            # h = F.max_pool2d(h, kernel_size=(3, 3), stride=2, padding=1)
-            h = IntervalMaxPool2d.apply_max_pool2d(h, kernel_size=(3, 3), stride=2, padding=1)
-        
+            h = F.max_pool2d(h, kernel_size=(3, 3), stride=2, padding=1)
+
         ### 4 groups, each containing `num_blocks` resnet blocks.
         fs_prev = self._filter_sizes[0]
         for i in range(4):
@@ -801,54 +796,20 @@ class IntervalResNetBasic(Classifier):
                 if j == 0 and (stride != 1 or fs_prev != fs_curr):
                     if self._projection_shortcut:
                         assert self._group_has_1x1[i]
-
-                        # shortcut_h = F.conv2d(
-                        #     h, middle_skip_1x1_weights[i], bias=None, stride=stride, padding=0
-                        # )
-                        shortcut_h = IntervalConv2d.apply_conv2d(
-                                    h,
-                                    lower_weights=lower_skip_1x1_weights[i],
-                                    middle_weights=middle_skip_1x1_weights[i],
-                                    upper_weights=upper_skip_1x1_weights[i],
-                                    lower_bias=None,
-                                    middle_bias=None,
-                                    upper_bias=None,
-                                    stride=stride,
-                                    padding=0,
-                            )
-
+                        shortcut_h = F.conv2d(
+                            h, skip_1x1_weights[i], bias=None, stride=stride, padding=0
+                        )
                         if self._use_batch_norm:
                             bn_short = len(self._batchnorm_layers) - 4 + i
-
-                            shortcut_h_lower, shortcut_h_middle, shortcut_h_upper = parse_logits(shortcut_h)
-
-                            shortcut_h_lower = self._batchnorm_layers[bn_short].forward(
-                                shortcut_h_lower,
+                            shortcut_h = self._batchnorm_layers[bn_short].forward(
+                                shortcut_h,
                                 running_mean=running_means[bn_short],
                                 running_var=running_vars[bn_short],
-                                weight=lower_bn_scales[bn_short],
-                                bias=lower_bn_shifts[bn_short],
+                                weight=bn_scales[bn_short],
+                                bias=bn_shifts[bn_short],
                                 stats_id=bn_cond,
                             )
-
-                            shortcut_h_upper = self._batchnorm_layers[bn_short].forward(
-                                shortcut_h_upper,
-                                running_mean=running_means[bn_short],
-                                running_var=running_vars[bn_short],
-                                weight=upper_bn_scales[bn_short],
-                                bias=upper_bn_shifts[bn_short],
-                                stats_id=bn_cond,
-                            )
-                        
-                
-                            shortcut_h_lower, shortcut_h_upper = F.relu(shortcut_h_lower), F.relu(shortcut_h_upper)
-                            shortcut_h_lower, shortcut_h_upper = torch.minimum(shortcut_h_lower, shortcut_h_upper), torch.maximum(shortcut_h_lower, shortcut_h_upper)
-                            
-                            shortcut_h_middle = (shortcut_h_lower + shortcut_h_upper) / 2.0
-                            shortcut_h = torch.stack([shortcut_h_lower, shortcut_h_middle, shortcut_h_upper], dim=1)
-
                     else:
-                        raise Exception("Not implemented yet")
                         # Use padding and subsampling.
                         pad_left = (fs_curr - fs_prev) // 2
                         pad_right = int(np.ceil((fs_curr - fs_prev) / 2))
@@ -857,7 +818,7 @@ class IntervalResNetBasic(Classifier):
                         shortcut_h = F.pad(
                             shortcut_h, (0, 0, 0, 0, pad_left, pad_right), "constant", 0
                         )
-                
+
                 if self._bottleneck_blocks:
                     h = conv_layer(h, stride, padding=0, shortcut=None)
                     stride = 1
@@ -871,23 +832,17 @@ class IntervalResNetBasic(Classifier):
             fs_prev = fs_curr
 
         ### Average pool all activities within a feature map.
-        # h = F.avg_pool2d(h, 2)
-        # h = h.reshape(h.size(0), -1)
-        h = IntervalAvgPool2d.apply_avg_pool2d(h, 2)
-        h = h.rename(None)
-        h = h.reshape(h.size(0), 3, -1)
+        h = F.avg_pool2d(h, 2)
+        h = h.reshape(h.size(0), -1)
 
         ### Apply final fully-connected layer and compute outputs.
-        # h = F.linear(h, middle_layer_weights[layer_ind], bias=middle_layer_biases[layer_ind])
-        h = IntervalLinear.apply_linear(
-            h,
-            upper_weights=upper_layer_weights[layer_ind],
-            middle_weights=middle_layer_weights[layer_ind],
-            lower_weights=lower_layer_weights[layer_ind],
-            upper_bias=upper_layer_biases[layer_ind],
-            middle_bias=middle_layer_biases[layer_ind],
-            lower_bias=lower_layer_biases[layer_ind]
-        )
+        h = F.linear(h, layer_weights[layer_ind], bias=layer_biases[layer_ind])
+
+        # Context-dependent modulation in output layer.
+        if self._use_context_mod and not self._no_last_layer_context_mod:
+            h = self._context_mod_layers[cm_ind].forward(
+                h, weights=cm_weights[2 * cm_ind : 2 * cm_ind + 2], ckpt_id=cmod_cond
+            )
 
         return h
 

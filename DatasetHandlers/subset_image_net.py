@@ -18,16 +18,18 @@ from torchvision.datasets import ImageFolder
 class SubsetImageNet(Dataset):
 
 
-    def __init__(self, path: str = "./seed_1993_subset_100_imagenet/data", 
+    def __init__(self, path: str, 
                 use_one_hot: bool = False,
                 use_data_augmentation: bool = False, 
                 validation_size: int = 100,
                 task_id: int = 0,
-                setting: int = 1):
+                setting: int = 4):
         
         assert validation_size <= 250
 
         super().__init__()
+
+        path = f"{path}/SubsetImageNet/"
 
         self._data = dict()
         self._path = path
@@ -63,6 +65,7 @@ class SubsetImageNet(Dataset):
         else:
             self._train_transform = self._test_transform
 
+
         if self._setting == 1:
             self._data["num_classes"] = 50
             self._data["num_incr_classes"] = 10
@@ -80,6 +83,10 @@ class SubsetImageNet(Dataset):
 
         self.train_data, self.val_data = self._get_task(task_id = task_id, mode = 'train')
         self.test_data                 = self._get_task(task_id = task_id, mode = 'test')
+
+        self.num_train_samples = len(self.train_data)
+        self.num_val_samples   = len(self.val_data)
+        self.num_test_samples  = len(self.test_data)
 
 
     def _get_task(self, task_id: int = 0, mode: str = 'train'):
@@ -133,6 +140,36 @@ class SubsetImageNet(Dataset):
         ## images = np.array([elem[0] for elem in ds])
         ## labels = np.array([elem[1] for elem in ds])
         # return images, labels
+    
+    def get_train_outputs(self):
+        """Get the outputs (targets) of all training samples.
+
+        Note, that each sample is encoded as a single vector. One may use the
+        attribute :attr:`out_shape` to decode the actual shape of an output
+        sample. Keep in mind, that classification samples might be one-hot
+        encoded.
+
+        Args:
+            use_one_hot (bool): For classification samples, the encoding of the
+                returned samples can be either "one-hot" or "class index". This
+                option is ignored for datasets other than classification sets.
+                If ``None``, the dataset its default encoding is returned.
+
+        Returns:
+            (numpy.ndarray): A 2D torch tensor, where each row encodes a training
+            target.
+        """
+        batch_size = self.num_train_samples
+        train_dl = DataLoader(self.train_data, batch_size=batch_size, shuffle=False)
+        _, y_train = next(iter(train_dl))
+
+        return y_train
+
+    def next_train_batch(self, batch_size: int):
+        """Returns the next batch of data"""
+        # TODO: Implement that
+        train_dl = DataLoader(self.train_data, batch_size=batch_size, shuffle=True)
+
     
 
     def _get_train_val_split(self):
