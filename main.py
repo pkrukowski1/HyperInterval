@@ -600,7 +600,7 @@ def plot_intervals_around_embeddings(hypernetwork,
         # Add labels and a legend
         plt.xlabel("Embedding's coordinate")
         plt.ylabel("Embedding's value")
-        plt.title(f"Intervals around embeddings with sum of radius = {parameters["perturbated_epsilon"]}, dim = {n_embs}")
+        plt.title(f'Intervals around embeddings with sum of radius = {parameters["perturbated_epsilon"]}, dim = {n_embs}')
         plt.xticks(x)
         plt.legend(loc="upper left", bbox_to_anchor=(1.05, 1.0))
         plt.grid()
@@ -807,7 +807,7 @@ def train_single_task(hypernetwork,
                      "worst_case_error;loss_regularization;loss_weights"
             
         append_row_to_file(
-        filename=f"{parameters["saving_folder"]}total_loss",
+        filename=f'{parameters["saving_folder"]}total_loss',
         elements=f"{current_no_of_task};{iteration};{loss};{loss_current_task};"
                  f"{worst_case_error};{loss_regularization};{loss_weights}",
         header=header
@@ -819,7 +819,7 @@ def train_single_task(hypernetwork,
         if iteration % 500 == 499:
         # if iteration % 10 == 9:
             # Plot intervals over tasks" embeddings plot
-            interval_plot_save_path = f"{parameters["saving_folder"]}/plots/"
+            interval_plot_save_path = f'{parameters["saving_folder"]}/plots/'
             plot_common_embedding = iteration >= iterations_to_adjust
 
             plot_intervals_around_embeddings(hypernetwork=hypernetwork,
@@ -845,8 +845,8 @@ def train_single_task(hypernetwork,
 
             # Save distance between the upper and lower weights to file
             append_row_to_file(
-            filename=f"{parameters["saving_folder"]}upper_lower_weights_distance",
-            elements=f"{current_no_of_task};{iteration};{loss_weights}"
+            filename=f'{parameters["saving_folder"]}upper_lower_weights_distance',
+            elements=f'{current_no_of_task};{iteration};{loss_weights}'
             )
 
             accuracy = 0.0
@@ -1029,13 +1029,13 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
         if no_of_task == (parameters["number_of_tasks"] - 1):
         # Save current state of networks
             write_pickle_file(
-                f"{parameters["saving_folder"]}/"
-                f"hypernetwork_after_{no_of_task}_task",
+                f'{parameters["saving_folder"]}/'
+                f'hypernetwork_after_{no_of_task}_task',
                 hypernetwork.weights
             )
             write_pickle_file(
-                f"{parameters["saving_folder"]}/"
-                f"target_network_after_{no_of_task}_task",
+                f'{parameters["saving_folder"]}/'
+                f'target_network_after_{no_of_task}_task',
                 target_network.weights
             )
         
@@ -1060,7 +1060,7 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
             "after_learning_of_task": "int",
             "tested_task": "int"
         })
-        dataframe.to_csv(f"{parameters["saving_folder"]}/"
+        dataframe.to_csv(f'{parameters["saving_folder"]}/'
                          f"results.csv",
                          sep=";")
         
@@ -1102,12 +1102,12 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
                                                     "after_learning_of_task": "int",
                                                     "tested_task": "int"
                                                 })
-            results_from_interval_intersection.to_csv(f"{parameters["saving_folder"]}/"
+            results_from_interval_intersection.to_csv(f'{parameters["saving_folder"]}/'
                                                 f"results_intersection.csv",
                                                 sep=";")
 
         # Plot intervals over tasks" embeddings plot
-        interval_plot_save_path = f"{parameters["saving_folder"]}/plots/"
+        interval_plot_save_path = f'{parameters["saving_folder"]}/plots/'
         plot_intervals_around_embeddings(hypernetwork=hypernetwork,
                                         parameters=parameters,
                                         save_folder=interval_plot_save_path,
@@ -1192,38 +1192,38 @@ def main_running_experiments(path_to_datasets,
     ]["accuracy"].values
     row_with_results = (
         f"{dataset_tasks_list[0].get_identifier()};"
-        f"{parameters["augmentation"]};"
-        f"{parameters["embedding_size"]};"
-        f"{parameters["seed"]};"
-        f"{str(parameters["hypernetwork_hidden_layers"]).replace(" ", "")};"
-        f"{parameters["use_chunks"]};{parameters["chunk_emb_size"]};"
-        f"{parameters["target_network"]};"
-        f"{str(parameters["target_hidden_layers"]).replace(" ", "")};"
-        f"{parameters["resnet_number_of_layer_groups"]};"
-        f"{parameters["resnet_widening_factor"]};"
-        f"{parameters["best_model_selection_method"]};"
-        f"{parameters["optimizer"]};"
-        f"{parameters["activation_function"]};"
-        f"{parameters["learning_rate"]};{parameters["batch_size"]};"
-        f"{parameters["beta"]};"
-        f"{parameters["norm"]};"
-        f"{parameters["perturbated_epsilon"]};"
-        f"{parameters["kappa"]};"
+        f'{parameters["augmentation"]};'
+        f'{parameters["embedding_size"]};'
+        f'{parameters["seed"]};'
+        f'{str(parameters["hypernetwork_hidden_layers"]).replace(" ", "")};'
+        f'{parameters["use_chunks"]};{parameters["chunk_emb_size"]};'
+        f'{parameters["target_network"]};'
+        f'{str(parameters["target_hidden_layers"]).replace(" ", "")};'
+        f'{parameters["resnet_number_of_layer_groups"]};'
+        f'{parameters["resnet_widening_factor"]};'
+        f'{parameters["best_model_selection_method"]};'
+        f'{parameters["optimizer"]};'
+        f'{parameters["activation_function"]};'
+        f'{parameters["learning_rate"]};{parameters["batch_size"]};'
+        f'{parameters["beta"]};'
+        f'{parameters["norm"]};'
+        f'{parameters["perturbated_epsilon"]};'
+        f'{parameters["kappa"]};'
         f"{np.mean(accuracies)};{np.std(accuracies)}"
     )
     append_row_to_file(
-        f"{parameters["grid_search_folder"]}"
-        f"{parameters["summary_results_filename"]}.csv",
+        f'{parameters["grid_search_folder"]}'
+        f'{parameters["summary_results_filename"]}.csv',
         row_with_results
     )
 
     # Plot heatmap for results
-    load_path = (f"{parameters["saving_folder"]}/"
+    load_path = (f'{parameters["saving_folder"]}/'
                  f"results.csv")
     plot_heatmap(load_path)
 
     # Plot heatmap for results intersection
-    load_path = (f"{parameters["saving_folder"]}/"
+    load_path = (f'{parameters["saving_folder"]}/'
                  f"results_intersection.csv")
     plot_heatmap(load_path)
     
@@ -1245,7 +1245,6 @@ if __name__ == "__main__":
     hyperparameters = set_hyperparameters(
         dataset,
         grid_search=create_grid_search,
-        part=part
     )
 
     header = (
@@ -1256,7 +1255,7 @@ if __name__ == "__main__":
     )
 
     append_row_to_file(
-        f"{hyperparameters["saving_folder"]}/{summary_results_filename}.csv",
+        f'{hyperparameters["saving_folder"]}/{summary_results_filename}.csv',
         header
     )
 
@@ -1318,7 +1317,7 @@ if __name__ == "__main__":
             "use_bias": hyperparameters["use_bias"],
             "use_batch_norm": hyperparameters["use_batch_norm"],
             "device": hyperparameters["device"],
-            "saving_folder": f"{hyperparameters["saving_folder"]}/{TIMESTAMP}/{no}/",
+            "saving_folder": f'{hyperparameters["saving_folder"]}/{TIMESTAMP}/{no}/',
             "grid_search_folder": hyperparameters["saving_folder"],
             "summary_results_filename": summary_results_filename,
             "perturbated_epsilon": perturbated_eps,
@@ -1334,7 +1333,7 @@ if __name__ == "__main__":
                 "no_of_validation_samples_per_class"
             ]
 
-        os.makedirs(f"{parameters["saving_folder"]}", exist_ok=True)
+        os.makedirs(f'{parameters["saving_folder"]}', exist_ok=True)
         # start_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         save_parameters(parameters["saving_folder"],
                         parameters,
