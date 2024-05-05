@@ -358,6 +358,10 @@ class CIFAR100Data(Dataset):
 
     def _torch_input_transforms(self):
 
+        normalize = transforms.Normalize(
+            mean=(0.5071, 0.4867, 0.4408), std=(0.2675, 0.2565, 0.2761)
+        )
+
         self._train_transform = transforms.Compose(
             [
                 transforms.ToPILImage("RGB"),
@@ -366,6 +370,7 @@ class CIFAR100Data(Dataset):
                 transforms.ColorJitter(brightness=63 / 255),
                 CIFAR10Policy(),
                 transforms.ToTensor(),
+                normalize
             ]
         )
 
@@ -373,6 +378,7 @@ class CIFAR100Data(Dataset):
             [
                 transforms.ToPILImage("RGB"),
                 transforms.ToTensor(),
+                normalize
             ]
         )
 
