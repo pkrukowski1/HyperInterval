@@ -693,7 +693,7 @@ def set_hyperparameters(dataset,
                 "embedding_sizes": [48],
                 "betas": [0.01],
                 "learning_rates": [0.001],
-                "batch_sizes": [128],
+                "batch_sizes": [32],
                 "hypernetworks_hidden_layers": [[100]],
                 "perturbated_epsilon": [10],
                 "dropout_rate": [-1],
@@ -704,7 +704,7 @@ def set_hyperparameters(dataset,
                 "use_batch_norm": True,
                 "target_network": "ResNet",
                 "use_chunks": False,
-                "number_of_epochs": 200,
+                "number_of_epochs": 1,
                 "augmentation": True
             }
             # FeCAM considered three incremental scenarios: with 6, 11 and 21 tasks
