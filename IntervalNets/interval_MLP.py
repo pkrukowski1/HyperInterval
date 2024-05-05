@@ -380,7 +380,7 @@ hyper_shapes_distilled` and the current statistics will be returned by the
 
         self._is_properly_setup()
 
-    def forward(self, x, upper_weights, middle_weights, lower_weights):
+    def forward(self, x, upper_weights, middle_weights, lower_weights, condition=None):
         """Compute the output :math:`y` of this network given the input
         :math:`x`.
 

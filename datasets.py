@@ -158,7 +158,8 @@ def prepare_subset_imagenet_tasks(
     setting: int = 4,
     use_augmentation = False,
     use_cutout = False,
-    number_of_tasks = 5
+    number_of_tasks = 5,
+    batch_size = 16
     ):
     """
     Prepare a list of *number_of_tasks* tasks related
@@ -184,18 +185,15 @@ def prepare_subset_imagenet_tasks(
     handlers = []
     for i in range(number_of_tasks):
 
-        validation_size = (
-            no_of_validation_samples_per_class * number_of_tasks
-        )
-
         handlers.append(
             SubsetImageNet(
                 path=datasets_folder,
-                validation_size=validation_size,
+                validation_size=no_of_validation_samples_per_class,
                 use_one_hot=True,
                 use_data_augmentation=use_augmentation,
                 task_id = i,
-                setting = setting
+                setting = setting,
+                batch_size=batch_size
             )
         )
 
@@ -487,6 +485,7 @@ def set_hyperparameters(dataset,
             # single run experiment
             hyperparams = {
                 "seed": [3],
+                "custom_init": [True],
                 "embedding_sizes": [24],
                 "learning_rates": [0.001],
                 "batch_sizes": [64],
@@ -623,24 +622,25 @@ def set_hyperparameters(dataset,
                 "perturbated_epsilon": [1.0],
                 "embedding_sizes": [48],
                 "learning_rates": [0.001],
-                "batch_sizes": [32],
+                "batch_sizes": [256],
                 "betas": [0.01],
                 "hypernetworks_hidden_layers": [[100]],
                 "resnet_number_of_layer_groups": 3,
                 "resnet_widening_factor": 2,
-                "embd_dropout_rate": [-1, 0.25],
-                "dropout_rate": [-1, 0.25, 0.5],
+                "embd_dropout_rate": [-1],
+                "dropout_rate": [-1],
                 "optimizer": "adam",
                 "use_batch_norm": True,
                 "target_network": "ResNet",
                 "use_chunks": False,
-                "number_of_epochs": 10,
+                "number_of_epochs": 2,
                 "augmentation": True,
                 "saving_folder": "./Results/SubsetImageNet/best_hyperparams/"
             }
         hyperparams["lr_scheduler"] = True
         hyperparams["number_of_iterations"] = None
         hyperparams["no_of_validation_samples_per_class"] = 50
+        hyperparams["no_of_validation_samples"] = 2000
         hyperparams["number_of_tasks"] = 5
         
         if hyperparams["target_network"] in ["ResNet", "ZenkeNet"]:

@@ -192,6 +192,7 @@ def calculate_number_of_iterations(number_of_samples,
         np.ceil(number_of_samples / batch_size)
     )
     total_no_of_iterations = int(no_of_iterations_per_epoch * number_of_epochs)
+
     return no_of_iterations_per_epoch, total_no_of_iterations
 
 
@@ -267,10 +268,13 @@ def calculate_accuracy(data,
         # Currently results will be calculated on the validation or test set
         if evaluation_dataset == "validation":
             input_data = data.get_val_inputs()
+
             output_data = data.get_val_outputs()
+
         elif evaluation_dataset == "test":
             input_data = data.get_test_inputs()
             output_data = data.get_test_outputs()
+
         test_input = data.input_to_torch_tensor(
             input_data, parameters["device"], mode="inference"
         )
@@ -731,9 +735,11 @@ def train_single_task(hypernetwork,
     iterations_to_adjust = int(iterations_to_adjust)
 
     for iteration in range(parameters["number_of_iterations"]):
+        
         current_batch = current_dataset_instance.next_train_batch(
             parameters["batch_size"]
         )
+
         tensor_input = current_dataset_instance.input_to_torch_tensor(
             current_batch[0], parameters["device"], mode="train"
         )
@@ -928,8 +934,12 @@ def build_multiple_task_experiment(dataset_list_of_tasks,
       *dataframe*: (Pandas Dataframe) contains results from consecutive
                    evaluations for all previous tasks
     """
-    output_shape = list(
-        dataset_list_of_tasks[0].get_train_outputs())[0].shape[0]
+
+    if parameters["dataset"] == "SubsetImageNet":
+        output_shape = dataset_list_of_tasks[0]._data["num_classes"]
+    else:
+        output_shape = list(
+            dataset_list_of_tasks[0].get_train_outputs())[0].shape[0]
 
     # Create a target network which will be multilayer perceptron
     # or ResNet/ZenkeNet with internal weights
@@ -1192,7 +1202,8 @@ def main_running_experiments(path_to_datasets,
             no_of_validation_samples_per_class=parameters[
                 "no_of_validation_samples_per_class"
             ],
-            use_augmentation=parameters["augmentation"]
+            use_augmentation=parameters["augmentation"],
+            batch_size=parameters["batch_size"]
         )
     else:
         raise ValueError("Wrong name of the dataset!")
@@ -1250,7 +1261,7 @@ def main_running_experiments(path_to_datasets,
 if __name__ == "__main__":
     # path_to_datasets = "/shared/sets/datasets/"
     path_to_datasets = "./Data"
-    dataset = "CIFAR100_FeCAM_setup"  # "PermutedMNIST", "CIFAR100", "SplitMNIST", "TinyImageNet", "CIFAR100_FeCAM_setup", "SubsetImageNet"
+    dataset = "SubsetImageNet"  # "PermutedMNIST", "CIFAR100", "SplitMNIST", "TinyImageNet", "CIFAR100_FeCAM_setup", "SubsetImageNet"
     part = 0
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") # Generate timestamp
     create_grid_search = False

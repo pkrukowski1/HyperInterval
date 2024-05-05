@@ -23,13 +23,14 @@ class SubsetImageNet(Dataset):
                 use_data_augmentation: bool = False, 
                 validation_size: int = 100,
                 task_id: int = 0,
-                setting: int = 4):
+                setting: int = 4,
+                batch_size: int = 16):
         
         assert validation_size <= 250
 
         super().__init__()
 
-        path = f"{path}/SubsetImageNet/"
+        path = f"{path}/seed_1993_subset_100_imagenet/data"
 
         self._data = dict()
         self._path = path
@@ -40,6 +41,8 @@ class SubsetImageNet(Dataset):
         self._use_data_augmentation = use_data_augmentation
         self._validation_size = validation_size
         self._setting = setting
+        self._batch_size = batch_size
+        self._data["in_shape"] = [64, 64, 3]
 
         self._test_transform = transforms.Compose(
             [
@@ -47,7 +50,8 @@ class SubsetImageNet(Dataset):
                 transforms.CenterCrop(224),
                 transforms.Resize((64, 64)),
                 transforms.ToTensor(),
-                transforms.Lambda(lambda x: torch.permute(x, (1, 2, 0)))
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                transforms.Lambda(lambda x: torch.permute(x, (1, 2, 0))),
             ]
         )
         
@@ -59,6 +63,7 @@ class SubsetImageNet(Dataset):
                     ImageNetPolicy(),
                     transforms.Resize((64, 64)),
                     transforms.ToTensor(),
+                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
                     transforms.Lambda(lambda x: torch.permute(x, (1, 2, 0))),
                 ]
             )
@@ -126,12 +131,19 @@ class SubsetImageNet(Dataset):
             indices = [j for j, label in enumerate(dataset.targets) if label in curr_task_labels and j not in val_map[label]]
             val_ds = Subset(dataset, val_map['all'])
             train_ds = Subset(dataset, indices)
+
+            self._val_data_loader   = DataLoader(val_ds, batch_size=self._batch_size, shuffle=False)
+            self._train_data_loader = DataLoader(train_ds, batch_size=self._batch_size, shuffle=True)
+
             del val_map
             print('Done!')
             return train_ds, val_ds
         else:
             indices = [j for j, label in enumerate(dataset.targets) if label in curr_task_labels]
             test_ds = Subset(dataset, indices)
+
+            self._test_data_loader = DataLoader(test_ds, batch_size=self._batch_size, shuffle=False)
+
             return test_ds
         
         # for saving task specific images and labels in memory:
@@ -141,36 +153,54 @@ class SubsetImageNet(Dataset):
         ## labels = np.array([elem[1] for elem in ds])
         # return images, labels
     
+    def get_val_inputs(self):
+        images = torch.stack([elem[0] for elem in self.val_data], dim=0)
+        return images
+    
+    def get_train_inputs(self):
+        images = torch.stack([elem[0] for elem in self.train_data], dim=0)
+        return images
+    
+    def get_test_inputs(self):
+        images = torch.stack([elem[0] for elem in self.test_data], dim=0)
+        return images
+
+    def get_val_outputs(self):
+        labels = torch.stack([elem[1] for elem in self.val_data], dim=0)
+        return labels
+    
     def get_train_outputs(self):
-        """Get the outputs (targets) of all training samples.
+        labels = torch.stack([elem[1] for elem in self.train_data], dim=0)
+        return labels
+    
+    def get_test_outputs(self):
+        labels = torch.stack([elem[1] for elem in self.test_data], dim=0)
+        return labels
+    
+    def input_to_torch_tensor(self, x, device, mode='inference',
+                              force_no_preprocessing=False, sample_ids=None):
 
-        Note, that each sample is encoded as a single vector. One may use the
-        attribute :attr:`out_shape` to decode the actual shape of an output
-        sample. Keep in mind, that classification samples might be one-hot
-        encoded.
+        return x.to(device)
+    
+    def output_to_torch_tensor(self, x, device, mode='inference',
+                              force_no_preprocessing=False, sample_ids=None):
 
-        Args:
-            use_one_hot (bool): For classification samples, the encoding of the
-                returned samples can be either "one-hot" or "class index". This
-                option is ignored for datasets other than classification sets.
-                If ``None``, the dataset its default encoding is returned.
-
-        Returns:
-            (numpy.ndarray): A 2D torch tensor, where each row encodes a training
-            target.
-        """
-        batch_size = self.num_train_samples
-        train_dl = DataLoader(self.train_data, batch_size=batch_size, shuffle=False)
-        _, y_train = next(iter(train_dl))
-
-        return y_train
+        return x.to(device)
 
     def next_train_batch(self, batch_size: int):
-        """Returns the next batch of data"""
-        # TODO: Implement that
-        train_dl = DataLoader(self.train_data, batch_size=batch_size, shuffle=True)
+        """Returns the next train batch of data"""
 
+        return next(iter(self._train_data_loader))
     
+    def next_test_batch(self, batch_size: int):
+        """Returns the next test batch of data"""
+
+        return next(iter(self._test_data_loader))
+    
+    def next_test_batch(self, batch_size: int):
+        """Returns the next val batch of data"""
+
+        return next(iter(self._val_data_loader))
 
     def _get_train_val_split(self):
         pass
@@ -479,27 +509,4 @@ class SubPolicy(object):
 
 if __name__ == "__main__":
 
-    path = './Data/imagenet100'
-    data = prepare_subset_imagenet_tasks(datasets_folder=path, setting = 4)
-
-    for task in data:
-        train_dl = DataLoader(task.train_data, batch_size=10, shuffle=False)
-        valid_dl = DataLoader(task.val_data, batch_size=10, shuffle=False)
-        test_dl = DataLoader(task.test_data, batch_size=10, shuffle=False)
-        break
-
-    for images, labels in test_dl:
-        break
-
-    for img, lab in valid_dl:
-        break
-
-    for _img, _lab in train_dl:
-        break
-
-
-    print(labels[-1])
-
-    SubsetImageNet.plot_sample(images[0], labels[0])
-    SubsetImageNet.plot_sample(img[0], lab[0])
-    SubsetImageNet.plot_sample(_img[0], _lab[0])
+    pass
