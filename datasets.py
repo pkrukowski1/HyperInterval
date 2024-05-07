@@ -592,11 +592,11 @@ def set_hyperparameters(dataset,
             hyperparams = {
                 "seed": [1],
                 "custom_init": [True],
-                "perturbated_epsilon": [10, 15, 20],
-                "embedding_sizes": [48, 96, 128],
-                "learning_rates": [0.001, 0.01],
-                "batch_sizes": [16, 32],
-                "dropout_rate": [-1, 0.25],
+                "perturbated_epsilon": [10, 20, 30],
+                "embedding_sizes": [48, 96],
+                "learning_rates": [0.001],
+                "batch_sizes": [32],
+                "dropout_rate": [-1],
                 "embd_dropout_rate": [-1],
                 "betas": [1.0, 0.01, 0.1],
                 "hypernetworks_hidden_layers": [[100, 100], [200, 200]],
@@ -664,17 +664,17 @@ def set_hyperparameters(dataset,
                 "custom_init": [True],
                 "embedding_sizes": [48, 64],
                 "betas": [0.01, 0.1, 1.0],
-                "learning_rates": [0.0001, 0.001],
+                "learning_rates": [0.001],
                 "batch_sizes": [32],
                 "hypernetworks_hidden_layers": [[200], [100]],
-                "perturbated_epsilon": [10, 15, 20],
-                "dropout_rate": [-1, 0.2],
+                "perturbated_epsilon": [10, 20, 30],
+                "dropout_rate": [-1],
                 "embd_dropout_rate": [-1],
                 "resnet_number_of_layer_groups": 3,
                 "resnet_widening_factor": 2,
                 "optimizer": "adam",
-                "use_batch_norm": False,
-                "target_network": "ZenkeNet",
+                "use_batch_norm": True,
+                "target_network": "ResNet",
                 "use_chunks": False,
                 "number_of_epochs": 200,
                 "augmentation": True,
@@ -715,7 +715,7 @@ def set_hyperparameters(dataset,
                 "saving_folder"
             ] = f"./Results/CIFAR_100_FeCAM/"
 
-        hyperparams["lr_scheduler"] = False
+        hyperparams["lr_scheduler"] = True
         hyperparams["number_of_iterations"] = None
         hyperparams["no_of_validation_samples_per_class"] = 50
         hyperparams["no_of_validation_samples"] = 2000
