@@ -1,6 +1,6 @@
 from Utils.prepare_non_forced_scenario_params import set_hyperparameters
 from Utils.dataset_utils import *
-from train_non_forced_classification_scenario import (
+from train_non_forced_scenario import (
     load_pickle_file,
     set_seed,
     intersection_of_embeds
@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 from scipy import stats
-from typing import Tuple
+from typing import Tuple, List, Dict
 
 def load_dataset(dataset, path_to_datasets, hyperparameters):
     """""
@@ -1080,8 +1080,8 @@ def plot_heatmap_for_n_runs(
 def calculate_backward_transfer(dataframe):
     """
     Calculate backward transfer based on dataframe with results
-    containing columns: 'loaded_task', 'evaluated_task',
-    'loaded_accuracy' and 'random_net_accuracy'.
+    containing columns: 'after_learning_of_task', 'tested_task',
+    'accuracy'.
     ---
     BWT = 1/(N-1) * sum_{i=1}^{N-1} A_{N,i} - A_{i,i}
     where N is the number of tasks, A_{i,j} is the result
@@ -1094,58 +1094,24 @@ def calculate_backward_transfer(dataframe):
 
     """
     backward_transfer = 0
-    number_of_last_task = int(dataframe.max()["loaded_task"])
+    number_of_last_task = int(dataframe.max()["after_learning_of_task"])
     # Indeed, number_of_last_task represents the number of tasks - 1
     # due to the numeration starting from 0
     for i in range(number_of_last_task + 1):
         trained_on_last_task = dataframe.loc[
-            (dataframe["loaded_task"] == number_of_last_task)
-            & (dataframe["evaluated_task"] == i)
-        ]["loaded_accuracy"].values[0]
+            (dataframe["after_learning_of_task"] == number_of_last_task)
+            & (dataframe["tested_task"] == i)
+        ]["accuracy"].values[0]
         trained_on_the_same_task = dataframe.loc[
-            (dataframe["loaded_task"] == i) & (dataframe["evaluated_task"] == i)
-        ]["loaded_accuracy"].values[0]
+            (dataframe["after_learning_of_task"] == i) & (dataframe["tested_task"] == i)
+        ]["accuracy"].values[0]
         backward_transfer += trained_on_last_task - trained_on_the_same_task
     backward_transfer /= number_of_last_task
     return backward_transfer
 
-
-def calculate_forward_transfer(dataframe):
+def calculate_BWT_different_files(paths, forward=True):
     """
-    Calculate forward transfer based on dataframe with results
-    containing columns: 'loaded_task', 'evaluated_task',
-    'loaded_accuracy' and 'random_net_accuracy'.
-    ---
-    FWT = 1/(N-1) * sum_{i=1}^{N-1} A_{i-1,i} - R_{i}
-    where N is the number of tasks, A_{i,j} is the result
-    for the network trained on the i-th task and tested
-    on the j-th task and R_{i} is the result for a random
-    network evaluated on the i-th task.
-
-    Returns a float with forward transfer result.
-
-    Reference: https://github.com/gmum/HyperMask/blob/main/evaluation.py
-
-    """
-    forward_transfer = 0
-    number_of_tasks = int(dataframe.max()["loaded_task"] + 1)
-    for i in range(1, number_of_tasks):
-        extracted_result = dataframe.loc[
-            (dataframe["loaded_task"] == (i - 1))
-            & (dataframe["evaluated_task"] == i)
-        ]
-        trained_on_previous_task = extracted_result["loaded_accuracy"].values[0]
-        random_network_result = extracted_result["random_net_accuracy"].values[
-            0
-        ]
-        forward_transfer += trained_on_previous_task - random_network_result
-    forward_transfer /= number_of_tasks - 1
-    return forward_transfer
-
-
-def calculate_FWT_BWT_different_files(paths, forward=True):
-    """
-    Calculate mean forward and (or) backward transfer with corresponding
+    Calculate mean backward transfer with corresponding
     sample standard deviations based on results saved in .csv files.
     
     Reference: https://github.com/gmum/HyperMask/blob/main/evaluation.py
@@ -1159,27 +1125,69 @@ def calculate_FWT_BWT_different_files(paths, forward=True):
 
     Returns:
     --------
-      FWTs: List[float]
-        Contains consecutive forward transfer values or an empty list (if forward is False).
       BWTs: List[float]
         Contains consecutive backward transfer values.
     """
-    FWTs, BWTs = [], []
+    BWTs = []
     for path in paths:
         dataframe = pd.read_csv(path, sep=";", index_col=0)
-        if forward:
-            FWTs.append(calculate_forward_transfer(dataframe))
         BWTs.append(calculate_backward_transfer(dataframe))
-    if forward:
-        print(
-            f"Mean forward transfer: {np.mean(FWTs)}, "
-            f"population standard deviation: {np.std(FWTs)}"
-        )
     print(
         f"Mean backward transfer: {np.mean(BWTs)}, "
         f"population standard deviation: {np.std(BWTs)}"
     )
-    return FWTs, BWTs
+    return BWTs
+
+def get_subdirs(path: str = "./") -> List[str]:
+    """
+    Find the immediate subdirectories given a path to a directory of interest.
+
+    Parameters :
+    ---------
+      path: str
+        A path to the directory of interest.
+
+    Returns:
+    --------
+      subdirs: List[str]
+        Contains names of subdirectories of the given path directory.
+    """
+    subdirs = [name for name in os.listdir(path) if os.path.isdir(os.path.join(path, name))]
+    return subdirs
+
+def calculate_BWT_different_datasets(datasets_folder: str = './HINT_models') -> Dict:
+    """
+    This function assumes that the dataset_folder contains directories
+    such as "CIFAR100/known_task_id/1/results.csv".
+
+    Parameters :
+    ---------
+      datasets_folder: str
+        A path to the datasets folders with results.
+
+    Returns:
+    --------
+      mean_results_dict: Dict
+        Contains average backward transfer values with standard deviation per dataset and available scenario.
+    """
+
+    datasets = get_subdirs(datasets_folder)
+    mean_results_dict = {}
+
+    for dataset in datasets:
+        temp_path = f"{datasets_folder}/{dataset}"
+        scenarios = get_subdirs(temp_path)
+
+        for scenario in scenarios:
+            temp_scenario_path = f"{temp_path}/{scenario}"
+            seeds = get_subdirs(temp_scenario_path)
+            paths = [f"{temp_scenario_path}/{seed}/results.csv" for seed in seeds]
+
+            bwt = calculate_BWT_different_files(paths, forward = False)
+            mean_results_dict[f"{dataset}: {scenario}"] = [np.round(np.mean(bwt),3), np.round(np.std(bwt),2)]
+
+    (pd.DataFrame.from_dict(data=mean_results_dict, orient='index', columns=['Avg', 'Std']).to_csv(f'{datasets_folder}/avg_bwt_results.csv', header=True))
+    return mean_results_dict
 
 if __name__ == "__main__":
    
