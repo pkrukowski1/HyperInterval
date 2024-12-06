@@ -856,10 +856,30 @@ def plot_intervals_around_embeddings(hypernetwork,
 def plot_regression_results(
         x: List[np.ndarray],  # One array per task
         y_pred: List[np.ndarray],  # One array per task
-        dataset_name = "GaussianDataset",
+        dataset_name: str = "GaussianDataset",
         save_path: str = "./GaussianDataset.png",
         t: float = 2.0
     ):
+    """
+    Plot ground truth functions and predicted data for regression datasets for all tasks at once.
+
+    Parameters:
+    ----------
+    x: List[np.ndarray]
+        Input datapoints, one array per task.
+    y_pred: List[np.ndarray]
+        Output from the model, one array per task.
+    dataset_name: str
+        Name of the evaluated dataset.
+    save_folder: str
+        Contains the folder where the plot will be saved.
+    t: float, optional
+        Gaussian covariance scaling value (used only for the visualization).
+
+    Returns:
+    -------
+        None
+    """
 
     if dataset_name == "ToyRegression1D":
         fig, ax = plt.subplots(1, figsize=(15,8))
