@@ -9,9 +9,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import datetime
+from scipy.stats import multivariate_normal
 import os
 import random
-from typing import Tuple
+from typing import Tuple, List
 
 
 
@@ -850,3 +851,94 @@ def plot_intervals_around_embeddings(hypernetwork,
         plt.tight_layout()
         plt.savefig(save_path, dpi=300)
         plt.close()
+
+
+def plot_regression_results(
+        x: List[np.ndarray],  # One array per task
+        y_pred: List[np.ndarray],  # One array per task
+        dataset_name = "GaussianDataset",
+        save_path: str = "./GaussianDataset.png",
+        t: float = 2.0
+    ):
+
+    if dataset_name == "ToyRegression1D":
+        fig, ax = plt.subplots(1, figsize=(15,8))
+
+        functions = [
+            lambda x : 2*x,
+            lambda x : 4*x**2-2,
+            lambda x : 8*x**3-12*x,
+            lambda x : 16*x**4 - 48*x**2 + 12,
+            lambda x : 32*x**5 - 160*x**3 + 120*x
+        ]
+
+        number_of_tasks = len(functions)
+
+        domain = np.linspace(0, 1, number_of_tasks+1)
+        _X = [domain[i:i+2] for i in range(number_of_tasks)]
+        X = [np.linspace(*_X[i], 100) for i in range(number_of_tasks)]
+        y_true = [np.array(functions[i](X[i])) for i in range(number_of_tasks)]
+        i = 0
+
+        for x_task, X_task, y_task, y_pred_task in zip(x, X, y_true, y_pred):
+            
+            plt.plot(X_task, y_task, label=f"task {i}, ground truth")
+            ax.scatter(x_task, y_pred_task, label=f"task {i}, predictions", alpha=1, edgecolor="black")
+            i += 1
+
+        plt.grid(True)
+        plt.legend()
+        plt.title("Toy Regression 1D - ground truth vs. predictions")
+        plt.savefig(save_path, dpi=300)
+        plt.close()
+
+    elif dataset_name == "GaussianDataset":
+
+        # Generate Gaussians
+        means = np.array([
+            [5, 5],      # Gaussian 1
+            [15, 15],    # Gaussian 2
+            [25, 5],     # Gaussian 3
+            [5, 25],     # Gaussian 4
+            [25, 25]     # Gaussian 5
+        ])
+
+        covariances = [
+            [[3, 1], [1, 2]],       # Covariance for Gaussian 1
+            [[4, 1.5], [1.5, 3]],   # Covariance for Gaussian 2
+            [[2, 0.5], [0.5, 1]],   # Covariance for Gaussian 3
+            [[3, -1], [-1, 2]],     # Covariance for Gaussian 4
+            [[4, -1.5], [-1.5, 3]]  # Covariance for Gaussian 5
+        ]
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        i = 0
+
+        for xy, z_pred_task in zip(x, y_pred):
+            x_task = xy[:,0]
+            y_task = xy[:,1]
+            
+            ax.scatter(x_task, y_task, z_pred_task, alpha=0.3, label=f"task {i}, predictions", edgecolors='black')
+            mu = means[i]
+            covariance = covariances[i]
+
+            x_min, x_max = mu[0] - t*covariance[0][0], mu[0] + t*covariance[0][0]
+            y_min, y_max = mu[1] - t*covariance[1][1], mu[1] + t*covariance[1][1]
+
+            X, Y = np.mgrid[x_min:x_max:100j, y_min:y_max:200j]
+            XY = np.column_stack([X.flat, Y.flat])
+            Z = multivariate_normal.pdf(XY, mean=mu, cov=covariance)
+            Z = Z.reshape(X.shape)
+
+            ax.plot_surface(X,Y,Z, alpha=0.6, label = f"task {i}, ground truth")
+            i += 1
+
+        ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5))
+        plt.title("Gaussian Mixture - ground truth vs. predictions")
+        plt.savefig(save_path, dpi=300)
+        plt.close()
+
+    else:
+        raise NotImplementedError("Regression results visualization is only available for ToyRegression and GaussianMixtures.")
+    
