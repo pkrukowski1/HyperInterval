@@ -543,12 +543,13 @@ def main_running_experiments(parameters):
         use_chunks=parameters["use_chunks"]
     )
 
-    # TODO: Plot GT functions values vs predictions
+    #TODO: dokończyć, funkcja powinna przyjmować parametry modelu jako input i liczyć output wewnętrznie
     plot_regression_results(
         x: List[np.ndarray],  # One array per task
-        y_true: List[np.ndarray], # One array per task
-        y_pred: List[np.ndarray],
-        dataset_name = parameters["dataset"]
+        y_pred: List[np.ndarray],  # One array per task
+        dataset_name = parameters["dataset"],
+        save_path = f"./{parameters["dataset"]}.png",
+        t = 2.0
     )
 
     elapsed_time = time.time() - start_time
